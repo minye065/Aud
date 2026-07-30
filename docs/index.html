@@ -15,7 +15,6 @@
             font-family: system-ui, sans-serif;
             transition: background 0.15s;
         }
-
             body.dragover {
                 background: #1e2a1e;
             }
@@ -23,7 +22,6 @@
         #zone {
             text-align: center;
         }
-
         button {
             padding: 12px 24px;
             font-size: 16px;
@@ -33,11 +31,9 @@
             border-radius: 6px;
             cursor: pointer;
         }
-
             button:hover {
                 background: #3a3a3a;
             }
-
         #status {
             margin-top: 16px;
             font-size: 14px;
@@ -46,26 +42,21 @@
     </style>
 </head>
 <body>
-
     <div id="zone">
         <input type="file" id="fileInput" hidden>
         <button id="uploadBtn">Upload file</button>
     </div>
-
     <script>
         const fileInput = document.getElementById('fileInput');
         const uploadBtn = document.getElementById('uploadBtn');
         const status = document.getElementById('status');
-
         function handleFile(file) {
         status.textContent = `Selected: ${file.name}`;
         }
-
         uploadBtn.addEventListener('click', () => fileInput.click());
         fileInput.addEventListener('change', () => {
         if (fileInput.files[0]) handleFile(fileInput.files[0]);
         });
-
         document.addEventListener('dragover', e => {
         e.preventDefault();
         document.body.classList.add('dragover');
@@ -79,6 +70,5 @@
         if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
         });
     </script>
-
 </body>
 </html>

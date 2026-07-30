@@ -35,6 +35,36 @@
  velocity = frequency * lambda
  lambda represents wavelength
 
+ Probably dont need to know this but basic waveforms
+ Sine wave
+ Square wave
+ Triangle wave
+ Sawtooth wave
+
+
+ Sine waves produce a pure tone
+ Square waves instantly switch from one tone to other, they sound buzzy
+ Triangle waves produce a tone in between square and sine waves
+ Sawtooth waves are sharp and buzz a little
+
+ Pulse-code modulation or PCM is a digital representation of sound
+ It takes snapshots of the sound wave at regular intervals
+
+
+ -- Encoder --
+ Upload MP4
+ MP4 -> PCM
+ PCM -> Sectioned into frames 2048 large with 50% overlap -> Frames
+ Frames -> Windowed with hann window formula thing -> Windowed frames
+ Windowed frames -> FFT -> smth
+
+ *Frames are held using malloc due to potential stack overflow crashes from large audio files
+
+ We use kissFFT as i am NOT writting a working fft library myself
+  -- / --
+
+
+
  -- NOT DONE --
  Phase
  The position of a point in time on a wave cycle
@@ -49,3 +79,14 @@
  decibals is log not linear
 
  -- / -- 
+
+
+ -- even more stuff (AHHHHHHHHHH) -- 
+ pcm
+ why 2048 samples/frame
+ frame cut on edge = spectral leakage
+ frame vs hop size
+
+ random tangent 
+ disk bytes vs samples
+ -- / --
