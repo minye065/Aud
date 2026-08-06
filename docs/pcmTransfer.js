@@ -1,8 +1,8 @@
+const runtimeReady = new Promise((resolve) => {
+  Module.onRuntimeInitialized = resolve;
+});
 async function encodeAudio(audioBuffer) {
-  await new Promise((resolve) => {
-    if (Module.calledRun) resolve();
-    else Module.onRuntimeInitialized = resolve;
-  });
+  await runtimeReady;
 
   const samples = audioBuffer.getChannelData(0);
   const sampleRate = audioBuffer.sampleRate;
@@ -14,20 +14,20 @@ async function encodeAudio(audioBuffer) {
   const getCount = Module.cwrap('get_note_count', 'number', []);
   const getEnv = Module.cwrap('get_envelope_ptr', 'number', []);
   const count = getCount();
-  const envPtr = getEnv();
   Module._free(pcmPtr);
-const notes = [];
+
+  const notes = [];
   for (let i = 0; i < count; i++) {
-    const base = (notesPtr >> 2) + i * 6;
-    const fundamental  = Module.HEAPF32[base + 0];
-    const startFrame   = Module.HEAP32[(notesPtr >> 2) + i * 6 + 1];
-    const endFrame     = Module.HEAP32[(notesPtr >> 2) + i * 6 + 2];
-    const envPtr     = Module.HEAP32[(notesPtr >> 2) + i * 6 + 3];
-    const envelopeLen  = Module.HEAP32[(notesPtr >> 2) + i * 6 + 4];
+    const o = (notesPtr >> 2) + i * 6;
+    const fundamental = Module.HEAPF32[o + 0];
+    const startFrame = Module.HEAP32[o + 1];
+    const endFrame = Module.HEAP32[o + 2];
+    const noteEnvPtr = Module.HEAP32[o + 3];
+    const envelopeLen = Module.HEAP32[o + 4];
 
     const envelope = new Float32Array(envelopeLen);
     for (let j = 0; j < envelopeLen; j++) {
-      envelope[j] = Module.HEAPF32[(envPtr >> 2) + j];
+      envelope[j] = Module.HEAPF32[(noteEnvPtr >> 2) + j];
     }
     notes.push({ fundamental, startFrame, endFrame, envelope, envelopeLength: envelopeLen });
   }
