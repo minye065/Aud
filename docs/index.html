@@ -15,6 +15,7 @@
             font-family: system-ui, sans-serif;
             transition: background 0.15s;
         }
+
             body.dragover {
                 background: #1e2a1e;
             }
@@ -22,6 +23,7 @@
         #zone {
             text-align: center;
         }
+
         button {
             padding: 12px 24px;
             font-size: 16px;
@@ -31,13 +33,25 @@
             border-radius: 6px;
             cursor: pointer;
         }
+
             button:hover {
                 background: #3a3a3a;
             }
+
         #status {
             margin-top: 16px;
             font-size: 14px;
             color: #999;
+        }
+
+        #output {
+            margin-top: 16px;
+            text-align: left;
+            max-width: 600px;
+            max-height: 400px;
+            overflow: auto;
+            white-space: pre-wrap;
+            font-size: 13px;
         }
     </style>
 </head>
@@ -45,18 +59,37 @@
     <div id="zone">
         <input type="file" id="fileInput" hidden>
         <button id="uploadBtn">Upload file</button>
+        <p id="status"></p>
+        <pre id="output"></pre>
     </div>
+
+    <script src="encoder.js"></script>
+    <script src="pcmTransfer.js"></script>
     <script>
         const fileInput = document.getElementById('fileInput');
         const uploadBtn = document.getElementById('uploadBtn');
         const status = document.getElementById('status');
-        function handleFile(file) {
-        status.textContent = `Selected: ${file.name}`;
+        const output = document.getElementById('output');
+
+        async function handleFile(file) {
+        status.textContent = `Processing: ${file.name}`;
+        output.textContent = '';
+
+        const arrayBuffer = await file.arrayBuffer();
+        const audioContext = new AudioContext();
+        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+        const result = await encodeAudio(audioBuffer);
+
+        status.textContent = `Done: ${file.name}`;
+        output.textContent = JSON.stringify(result, null, 2);
         }
+
         uploadBtn.addEventListener('click', () => fileInput.click());
         fileInput.addEventListener('change', () => {
         if (fileInput.files[0]) handleFile(fileInput.files[0]);
         });
+
         document.addEventListener('dragover', e => {
         e.preventDefault();
         document.body.classList.add('dragover');
