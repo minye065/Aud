@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include "hannTable.c"
-#include "kissfft_min/kiss_fftr.h"
+#include "kissfft/kiss_fftr.h"
 
 typedef struct peakStorage
 {
@@ -238,8 +238,8 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 				groupCounter += 1;
 			}
 		}
-		float groupStartFrame;
-		float groupEndFrame;
+		int groupStartFrame;
+		int groupEndFrame;
 		int maxGroupLength = 0;
 		for (int i = 0; i < groupCounter; i++)
 		{
