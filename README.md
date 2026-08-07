@@ -3,6 +3,19 @@ Aud is a two part project made up of a website and a windows app.
 The website is done and can be found at https://minye065.github.io/Aud/.
 The website allows you to upload files and turn them into a custom format. The format has no use yet but will be used to play audio on the app.
 
+When using site:
+DO NOT UPLOAD LARGE FILES IT WILL CAUSE A HEAP OOM - will be fixed soon
+THIS IS A PROOF OF CONCEPT 
+ONLY UPLOAD MP4 MP3 OR WAV
+ANY OTHER FILE WILL BREAK THE SYSTEM
+
+DO NOT UPLOAD A FILE AFTER ANOTHER HAS BEEN PROCCESSED
+THIS WILL CAUSE IT TO BREAK - known bug will be fixed soon (has to do with not freeing mem bc i need to send it to the js file)
+
+
+
+
+-- --
 Below is a rough explanation of the things used in the project.
 
 Another note, this project is made with the goal of having as few outside libraries as possible
@@ -69,3 +82,6 @@ Another note, this project is made with the goal of having as few outside librar
 
  We use kissFFT as i am NOT writting a working fft library myself
   -- / --
+
+
+  emcc web_encoder.c kissfft/kiss_fft.c kissfft/kiss_fftr.c -Ikissfft -O0 -s EXPORTED_FUNCTIONS="['_encode','_get_note_count','_get_envelope_ptr','_malloc','_free']" -s EXPORTED_RUNTIME_METHODS="['cwrap','HEAPF32','HEAP32']" -o encoder.js
