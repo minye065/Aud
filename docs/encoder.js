@@ -494,9 +494,9 @@ function updateMemoryViews() {
   
   HEAPU8 = new Uint8Array(b);
   
-  HEAP32 = new Int32Array(b);
+  Module['HEAP32'] = HEAP32 = new Int32Array(b);
   HEAPU32 = new Uint32Array(b);
-  
+  Module['HEAPF32'] = HEAPF32 = new Float32Array(b);
   
   
   
@@ -1131,6 +1131,10 @@ async function createWasm() {
   var cwrap = (ident, returnType, argTypes, opts) => {
       return (...args) => ccall(ident, returnType, argTypes, args, opts);
     };
+
+  /** @type {!Float32Array} */
+  var HEAPF32;
+
 // End JS library code
 
 // include: postlibrary.js
@@ -1382,9 +1386,7 @@ missingLibrarySymbols.forEach(missingLibrarySymbol)
   'HEAPU8',
   'HEAP16',
   'HEAPU16',
-  'HEAP32',
   'HEAPU32',
-  'HEAPF32',
   'HEAPF64',
   'HEAP64',
   'HEAPU64',
