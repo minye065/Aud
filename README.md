@@ -1,4 +1,11 @@
 # Aud
+Aud is a two part project made up of a website and a windows app.
+The website is done and can be found at https://minye065.github.io/Aud/.
+The website allows you to upload files and turn them into a custom format. The format has no use yet but will be used to play audio on the app.
+
+Below is a rough explanation of the things used in the project.
+
+Another note, this project is made with the goal of having as few outside libraries as possible
 
  Sound is a series of vibrations
  More accurately it is the change in pressure of a medium
