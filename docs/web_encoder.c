@@ -100,17 +100,15 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 		float lowerbound = peakHzStorage[0] - 20;
 		int frameCounter = 1;
 		int partialTrackCounter = 0;
-		float totalHz = 0;
 		peakStorage thisIterationPeak;
 		peakStorage* partialTrackStorage = malloc(amountOfFrames * sizeof(peakStorage));
 		int groupCounter = 0;
+		int startFrame = 0;
 		for (int k = 1; k < amountOfFrames; k++)
 		{
-			int startFrame = 0;
 			if (peakHzStorage[k] < upperbound && peakHzStorage[k] > lowerbound)
 			{
 				frameCounter += 1;
-				totalHz += peakHzStorage[k];
 			}
 			else
 			{
@@ -133,7 +131,7 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 		partialTrackStorage[partialTrackCounter] = thisIterationPeak;
 		partialTrackCounter += 1;
 
-		int groupedFrequencyRuns[partialTrackCounter][2];
+		int (*groupedFrequencyRuns)[2] = malloc(partialTrackCounter * sizeof(int[2]));
 
 		int* partialTracksLeft = malloc(partialTrackCounter * sizeof(int));
 		int numberOfTracksLeft = partialTrackCounter;
@@ -212,12 +210,12 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 				groupedFrequencyRuns[groupCounter][1] = partialTracksLeft[topIteration]; // bit shifting instead?
 				if (topIteration > p)
 				{
-					for (int i = topIteration; i < numberOfTracksLeft; i++)
+					for (int i = topIteration; i < numberOfTracksLeft - 1; i++)
 					{
 						partialTracksLeft[i] = partialTracksLeft[i + 1];
 					}
 					numberOfTracksLeft -= 1;
-					for (int i = p; i < numberOfTracksLeft; i++)
+					for (int i = p; i < numberOfTracksLeft -1; i++)
 					{
 						partialTracksLeft[i] = partialTracksLeft[i + 1];
 					}
@@ -225,12 +223,12 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 				}
 				else
 				{
-					for (int i = p; i < numberOfTracksLeft; i++)
+					for (int i = p; i < numberOfTracksLeft - 1; i++)
 					{
 						partialTracksLeft[i] = partialTracksLeft[i + 1];
 					}
 					numberOfTracksLeft -= 1;
-					for (int i = topIteration; i < numberOfTracksLeft; i++)
+					for (int i = topIteration; i < numberOfTracksLeft - 1; i++)
 					{
 						partialTracksLeft[i] = partialTracksLeft[i + 1];
 					}
@@ -373,6 +371,7 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 		result = noteEventStorage;
 		free(magnitudeStorage);
 		free(partialTrackStorage);
+		free(groupedFrequencyRuns);
 	}
 	kiss_fftr_free(cfg);
 	free(frameStorage);
