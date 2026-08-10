@@ -371,7 +371,6 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 		result = noteEventStorage;
 		free(magnitudeStorage);
 		free(partialTrackStorage);
-		free(groupedFrequencyRuns);
 	}
 	kiss_fftr_free(cfg);
 	free(frameStorage);
