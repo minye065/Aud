@@ -68,7 +68,7 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 		}
 		kiss_fft_cpx spectrum[binSize];
 		float* magnitudeStorage = malloc(amountOfFrames * binSize * sizeof(float)); 
-		float peakHzStorage[amountOfFrames];
+		float* peakHzStorage = malloc (amountOfFrames * sizeof(float));
 		for (int k = 0; k < amountOfFrames; k++)
 		{
 			kiss_fftr(cfg, &windowedFrameStorage[k * frameSize], spectrum);
@@ -102,7 +102,7 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 		int partialTrackCounter = 0;
 		float totalHz = 0;
 		peakStorage thisIterationPeak;
-		peakStorage partialTrackStorage[amountOfFrames];
+		peakStorage* partialTrackStorage = malloc(amountOfFrames * sizeof(peakStorage));
 		int groupCounter = 0;
 		for (int k = 1; k < amountOfFrames; k++)
 		{
@@ -128,12 +128,13 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 		}
 		thisIterationPeak.length = frameCounter;
 		thisIterationPeak.peakHz = peakHzStorage[amountOfFrames - 1];
+		free(peakHzStorage);
 		partialTrackStorage[partialTrackCounter] = thisIterationPeak;
 		partialTrackCounter += 1;
 
 		int groupedFrequencyRuns[partialTrackCounter][2];
 
-		int partialTracksLeft[partialTrackCounter];
+		int* partialTracksLeft = malloc(partialTrackCounter * sizeof(int));
 		int numberOfTracksLeft = partialTrackCounter;
 		for (int t = 0; t < partialTrackCounter; t++)
 		{
@@ -238,6 +239,7 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 				groupCounter += 1;
 			}
 		}
+		free(partialTracksLeft);
 		int groupStartFrame;
 		int groupEndFrame;
 		int maxGroupLength = 0;
@@ -368,6 +370,8 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 		envelopeBuffer = groupEnvelope;
 		result = noteEventStorage;
 		free(magnitudeStorage);
+		free(partialTrackStorage);
+		free(groupedFrequencyRuns);
 	}
 	kiss_fftr_free(cfg);
 	free(frameStorage);
