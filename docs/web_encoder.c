@@ -44,7 +44,7 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 	{
 		amountOfFrames = 1;
 	}
-
+	printf("totalSize=%u sampleRate=%u amountOfFrames=%u\n", totalSize, sampleRate, amountOfFrames);
 	float* frameStorage = malloc(amountOfFrames * frameSize * sizeof(float));
 	float* windowedFrameStorage = malloc(amountOfFrames * frameSize * sizeof(float));
 
@@ -126,6 +126,7 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 				frameCounter = 1;
 			}
 		}
+		printf("partialTracks=%d\n", partialTrackCounter);
 		thisIterationPeak.length = frameCounter;
 		thisIterationPeak.peakHz = peakHzStorage[amountOfFrames - 1];
 		free(peakHzStorage);
@@ -238,6 +239,7 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 				p -= 1;
 				groupCounter += 1;
 			}
+			if (p % 500 == 0) printf("grouping p=%d of %d\n", p, numberOfTracksLeft);
 		}
 		free(partialTracksLeft);
 		int groupStartFrame;
