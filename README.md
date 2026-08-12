@@ -13,8 +13,39 @@ DO NOT UPLOAD A FILE AFTER ANOTHER HAS BEEN PROCCESSED
 THIS WILL CAUSE IT TO BREAK - known bug will be fixed soon (has to do with not freeing mem bc i need to send it to the js file)
 
 
+__ __
+Run locally (useless there's nothing to run locally yet)
+Pre reqs: git, github acc w/ pages access
 
+Clone this project
+```
+	git clone https://github.com/minye065/Aud
+```
 
+Install emcc
+```
+	git clone https://github.com/emscripten-core/emsdk.git
+	cd emsdk
+	emsdk install latest
+	emsdk activate latest
+ ```
+
+ Env var
+ ```
+	C:\dev\emsdk\emsdk_env.ps1
+ ```
+
+ Compile
+ ```
+	emcc web_encoder.c kissfft/kiss_fft.c kissfft/kiss_fftr.c -Ikissfft -O0 -s ALLOW_MEMORY_GROWTH=1 -s EXPORTED_FUNCTIONS="['_encode','_get_note_count','_get_envelope_ptr','_malloc','_free']" -s EXPORTED_RUNTIME_METHODS="['cwrap','HEAPF32','HEAP32']" -o encoder.js
+ ```
+
+ Push to git 
+ ```
+	git add .
+    git commit -m "update encoder"
+	git push
+ ```
 -- --
 Below is a rough explanation of the things used in the project.
 
@@ -84,4 +115,4 @@ Another note, this project is made with the goal of having as few outside librar
   -- / --
 
 
-  emcc web_encoder.c kissfft/kiss_fft.c kissfft/kiss_fftr.c -Ikissfft -O0 -s EXPORTED_FUNCTIONS="['_encode','_get_note_count','_get_envelope_ptr','_malloc','_free']" -s EXPORTED_RUNTIME_METHODS="['cwrap','HEAPF32','HEAP32']" -o encoder.js
+emcc web_encoder.c kissfft/kiss_fft.c kissfft/kiss_fftr.c -Ikissfft -O0 -s EXPORTED_FUNCTIONS="['_encode','_get_note_count','_get_envelope_ptr','_malloc','_free']" -s EXPORTED_RUNTIME_METHODS="['cwrap','HEAP32','HEAPF32']" -s ASSERTIONS=1 -s STACK_SIZE=16777216 -s ALLOW_MEMORY_GROWTH=1 -o encoder.js
