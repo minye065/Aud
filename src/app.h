@@ -15,10 +15,7 @@ typedef struct note
 	float timeLength;
 } note;
 
-int noteOrdering(const void* a, const void* b)
-{
-	note* noteA = (note*)a;
-	note* noteB = (note*)b;
-	return noteA->startFrame - noteB->startFrame;
-}
+int noteOrdering(const void* a, const void* b);
+float getActiveNotes(float currentTime);
+
 #endif

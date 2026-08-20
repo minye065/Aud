@@ -127,6 +127,8 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 		printf("partialTracks=%d\n", partialTrackCounter);
 		thisIterationPeak.length = frameCounter;
 		thisIterationPeak.peakHz = peakHzStorage[amountOfFrames - 1];
+		thisIterationPeak.startFrame = startFrame;
+		thisIterationPeak.endFrame = amountOfFrames - 1;
 		free(peakHzStorage);
 		partialTrackStorage[partialTrackCounter] = thisIterationPeak;
 		partialTrackCounter += 1;

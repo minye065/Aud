@@ -27,14 +27,10 @@ static DWORD NextWriteOffset = 0;
 
 static int CurrentState = INIT_STATE;
 
-static float currentTime = 0.0f;
-static float totalTime = 100.0f;
+static float currentTime;
+static float totalTime;
 
-// Shared Logic Globals
-note* noteStorage = NULL;
-int noteCount = 0;
-float* phase = NULL;
-int isPlaying = 0;
+static char* input;
 
 LRESULT CALLBACK
 Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
@@ -66,6 +62,7 @@ Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
         MoveWindow(PlayButton, Width / 2 - 130, (Height / 3) * 2, 120, 30, TRUE);
         MoveWindow(StopButton, Width / 2 + 10, (Height / 3) * 2, 120, 30, TRUE);
         MoveWindow(BackButton, 40, 10, 120, 30, TRUE);
+        int GetWindowTextA(InputBox, input, 100000000);
     } break;
     case WM_COMMAND:
     {

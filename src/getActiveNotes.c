@@ -5,6 +5,13 @@
 float* phase;
 //	phase = malloc(noteCount * sizeof(float))
 
+int noteOrdering(const void* a, const void* b)
+{
+	note* noteA = (note*)a;
+	note* noteB = (note*)b;
+	return noteA->startFrame - noteB->startFrame;
+}
+
 float getActiveNotes(float currentTime, char* input)
 {
 	float mixedAmplitude = 0.0f;
