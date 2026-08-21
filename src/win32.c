@@ -82,7 +82,7 @@ Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
             ShowWindow(BackButton, SW_SHOW);
             InvalidateRect(Window, NULL, TRUE);
             input = GetWindowTextA(InputBox, input, 100000000);
-            noteCount = input;
+            noteCount = input.;
             noteStorage = malloc(noteCount * sizeof(note))
 
         } break;
