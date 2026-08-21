@@ -14,6 +14,7 @@
 #define INIT_STATE 90
 #define INPUT_STATE 91
 #define PLAYING_STATE 92
+#define ERROR_STATE 99
 
 static BOOL GlobalRunning;
 static HWND PlayButton;
@@ -34,8 +35,25 @@ static float totalTime;
 static float phase;
 static int noteCount;
 
-static char* input;
-note* noteStorage;
+static char* input = 0;
+note* noteStorage = 0;
+
+void FreeNotes(void)
+{
+    if (noteStorage)
+    {
+        for (int i = 0; i < noteCount; i++)
+        {
+            if (noteStorage[i].envelope)
+            {
+                free(noteStorage[i].envelope);
+                noteStorage[i].envelope = NULL;
+            }
+        }
+        free(noteStorage);
+        noteStorage = NULL;
+    }
+}
 
 LRESULT CALLBACK
 Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
@@ -75,17 +93,80 @@ Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
         case INPUT_BOX: break;
         case DONE_BUTTON:
         {
-            CurrentState = PLAYING_STATE;
-            ShowWindow(InputBox, SW_HIDE);
-            ShowWindow(DoneButton, SW_HIDE);
-            ShowWindow(PlayButton, SW_SHOW);
-            ShowWindow(StopButton, SW_SHOW);
-            ShowWindow(BackButton, SW_SHOW);
-            InvalidateRect(Window, NULL, TRUE);
-            input = GetWindowTextA(InputBox, input, 100000000);
-            sscanf(input, "\"noteCount\": %d", &noteCount);
-            noteStorage = malloc(noteCount * sizeof(note))
+            if (input)
+            {
+                free(input);
+                input = NULL;
+            }
+            int textLength = GetWindowTextLength(InputBox);
+            input = malloc(textLength + 1);
+            if (input)
+            {
+                GetWindowTextA(InputBox, input, textLength + 1);
+                char* start = strstr(input, "\"noteCount\":");
+                if (start && sscanf(start, "\"noteCount\": %d", &noteCount) == 1 && noteCount > 0)
+                {
+                    CurrentState = PLAYING_STATE;
+                    ShowWindow(InputBox, SW_HIDE);
+                    ShowWindow(DoneButton, SW_HIDE);
+                    ShowWindow(PlayButton, SW_SHOW);
+                    ShowWindow(StopButton, SW_SHOW);
+                    ShowWindow(BackButton, SW_SHOW);
+                    InvalidateRect(Window, NULL, TRUE);
 
+                    FreeNotes();
+                    noteStorage = malloc(noteCount * sizeof(note));
+                    if (noteStorage)
+                    {
+                        memset(noteStorage, 0, noteCount * sizeof(note));
+                        char* cursor = input;
+                        for (int i = 0; i < noteCount; i++)
+                        {
+                            cursor = strstr(cursor, "\"fundamental\":");
+                            if (cursor) sscanf(cursor, "\"fundamental\": %f", &noteStorage[i].fundamental);
+                            cursor = strstr(cursor, "\"startFrame\":");
+                            if (cursor) sscanf(cursor, "\"startFrame\": %d", &noteStorage[i].startFrame);
+                            cursor = strstr(cursor, "\"endFrame\":");
+                            if (cursor) sscanf(cursor, "\"endFrame\": %d", &noteStorage[i].endFrame);
+                            cursor = strstr(cursor, "\"envelopeLength\":");
+                            if (cursor) sscanf(cursor, "\"envelopeLength\": %d", &noteStorage[i].envelopeLength);
+
+                            if (noteStorage[i].envelopeLength > 0)
+                            {
+                                noteStorage[i].envelope = malloc(noteStorage[i].envelopeLength * sizeof(float));
+                                if (noteStorage[i].envelope)
+                                {
+                                    memset(noteStorage[i].envelope, 0, noteStorage[i].envelopeLength * sizeof(float));
+                                    cursor = strstr(cursor, "\"envelope\":");
+                                    if (cursor)
+                                    {
+                                        for (int h = 0; h < noteStorage[i].envelopeLength; h++)
+                                        {
+                                            char searchStr[32];
+                                            sprintf(searchStr, "\"%d\":", h);
+
+                                            char* envCursor = strstr(cursor, searchStr);
+                                            if (envCursor)
+                                            {
+                                                char scanFormat[32];
+                                                sprintf(scanFormat, "\"%d\": %%f", h);
+                                                sscanf(envCursor, scanFormat, &noteStorage[i].envelope[h]);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            cursor = strstr(cursor, "}");
+                            if (!cursor) break;
+                        }
+                        totalTime = (float)noteStorage[noteCount - 1].endFrame / (44100.0f / 1024.0f);
+                    }
+                }
+                else
+                {
+                    MessageBoxA(Window, "Not usable data, if you are confused please see the readme: https://github.com/minye065/Aud/blob/main/README.md ERROR100", "Error 100", MB_OK | MB_ICONERROR);
+                }
+            }
         } break;
         case PLAY_BUTTON:
         {
@@ -95,10 +176,7 @@ Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
         {
             isPlaying = 0;
             currentTime = 0.0f;
-            if (phase && noteCount > 0)
-            {
-                memset(phase, 0, noteCount * sizeof(float));
-            }
+            phase = 0.0f;
             InvalidateRect(Window, NULL, FALSE);
         } break;
         case BACK_BUTTON:
@@ -260,7 +338,6 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine
                     TranslateMessage(&Message);
                     DispatchMessage(&Message);
                 }
-                Sleep(20);
 
                 DWORD PlayCursor = 0;
                 DWORD WriteCursor = 0;
@@ -293,9 +370,9 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine
                             for (DWORD Index = 0; Index < SampleCount1; ++Index)
                             {
                                 float mixedAmplitude = 0.0f;
-                                if (isPlaying && CurrentState == PLAYING_STATE)
+                                if (isPlaying && CurrentState == PLAYING_STATE && noteStorage)
                                 {
-                                    mixedAmplitude = getActiveNotes(currentTime, input);
+                                    mixedAmplitude = getActiveNotes(currentTime, input, noteCount, noteStorage);
                                     currentTime += 1.0f / 44100.0f;
                                     if (currentTime >= totalTime)
                                     {
@@ -311,9 +388,9 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine
                             for (DWORD Index = 0; Index < SampleCount2; ++Index)
                             {
                                 float mixedAmplitude = 0.0f;
-                                if (isPlaying && CurrentState == PLAYING_STATE)
+                                if (isPlaying && CurrentState == PLAYING_STATE && noteStorage)
                                 {
-                                    mixedAmplitude = getActiveNotes(currentTime, input);
+                                    mixedAmplitude = getActiveNotes(currentTime, input, noteCount, noteStorage);
                                     currentTime += 1.0f / 44100.0f;
                                     if (currentTime >= totalTime)
                                     {
@@ -327,16 +404,20 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine
                             IDirectSoundBuffer_Unlock(SecondaryBuffer, Ref1, Size1, Ref2, Size2);
                             NextWriteOffset = (NextWriteOffset + BytesToWrite) % PlayBufferSize;
 
-                            if (CurrentState == PLAYING_STATE)
+                            if (CurrentState == PLAYING_STATE && isPlaying)
                             {
                                 InvalidateRect(Window, NULL, FALSE);
                             }
                         }
                     }
                 }
+                Sleep(10);
             }
         }
     }
+
+    FreeNotes();
+    if (input) free(input);
 
     return (0);
 }
