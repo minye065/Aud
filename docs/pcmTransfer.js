@@ -32,5 +32,5 @@ async function encodeAudio(audioBuffer) {
     notes.push({ fundamental, startFrame, endFrame, envelope, envelopeLength: envelopeLen });
   }
   Module._free(notesPtr);
-  return { sampleRate, notes };
+  return { count, notes };
 }
