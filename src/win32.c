@@ -69,10 +69,17 @@ Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
     {
         GlobalRunning = FALSE;
     } break;
+    case WM_KEYUP:
+    {
+    } break;
     case WM_SIZE:
     {
         int Width = LOWORD(LParam);
         int Height = HIWORD(LParam);
+        if (CurrentState == INIT_STATE)
+        {
+            OutputDebugStringA("ERR - WM_SIZE call has state INIT");
+        }
         MoveWindow(InputBox, Width / 2 - 200, (Height / 3) - 100, 400, 200, TRUE);
         MoveWindow(DoneButton, Width / 2 - 60, (Height / 3) * 2, 120, 30, TRUE);
         MoveWindow(PlayButton, Width / 2 - 130, (Height / 3) * 2, 120, 30, TRUE);
@@ -83,6 +90,7 @@ Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
     {
         switch (LOWORD(WParam))
         {
+        case INPUT_BOX: break;
         case DONE_BUTTON:
         {
             if (input)
@@ -91,42 +99,33 @@ Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
                 input = NULL;
             }
             int textLength = GetWindowTextLength(InputBox);
-            if (textLength <= 0) break;
-
-            input = (char*)malloc(textLength + 1);
+            input = malloc(textLength + 1);
             if (input)
             {
                 GetWindowTextA(InputBox, input, textLength + 1);
                 char* start = strstr(input, "\"noteCount\":");
-
                 if (start && sscanf(start, "\"noteCount\": %d", &noteCount) == 1 && noteCount > 0)
                 {
+                    CurrentState = PLAYING_STATE;
                     FreeNotes();
-                    noteStorage = (note*)malloc(noteCount * sizeof(note));
-
+                    noteStorage = malloc(noteCount * sizeof(note));
                     if (noteStorage)
                     {
                         memset(noteStorage, 0, noteCount * sizeof(note));
                         char* cursor = input;
-                        BOOL parseError = FALSE;
-
                         for (int i = 0; i < noteCount; i++)
                         {
                             cursor = strstr(cursor, "\"fundamental\":");
                             if (cursor) sscanf(cursor, "\"fundamental\": %f", &noteStorage[i].fundamental);
-
                             cursor = strstr(cursor, "\"startFrame\":");
                             if (cursor) sscanf(cursor, "\"startFrame\": %d", &noteStorage[i].startFrame);
-
                             cursor = strstr(cursor, "\"endFrame\":");
                             if (cursor) sscanf(cursor, "\"endFrame\": %d", &noteStorage[i].endFrame);
-
                             cursor = strstr(cursor, "\"envelopeLength\":");
                             if (cursor) sscanf(cursor, "\"envelopeLength\": %d", &noteStorage[i].envelopeLength);
-
-                            if (noteStorage[i].envelopeLength > 0 && noteStorage[i].envelopeLength < 100000)
+                            if (noteStorage[i].envelopeLength > 0)
                             {
-                                noteStorage[i].envelope = (float*)malloc(noteStorage[i].envelopeLength * sizeof(float));
+                                noteStorage[i].envelope = malloc(noteStorage[i].envelopeLength * sizeof(float));
                                 if (noteStorage[i].envelope)
                                 {
                                     memset(noteStorage[i].envelope, 0, noteStorage[i].envelopeLength * sizeof(float));
@@ -147,38 +146,27 @@ Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
                                         }
                                     }
                                 }
-                                else
-                                {
-                                    parseError = TRUE;
-                                    break;
-                                }
                             }
-
                             cursor = strstr(cursor, "}");
                             if (!cursor) break;
                         }
-
-                        if (!parseError && noteStorage[noteCount - 1].endFrame > 0)
-                        {
-                            totalTime = (float)noteStorage[noteCount - 1].endFrame / (44100.0f / 1024.0f);
-                            CurrentState = PLAYING_STATE;
-                            ShowWindow(InputBox, SW_HIDE);
-                            ShowWindow(DoneButton, SW_HIDE);
-                            ShowWindow(PlayButton, SW_SHOW);
-                            ShowWindow(StopButton, SW_SHOW);
-                            ShowWindow(BackButton, SW_SHOW);
-                            InvalidateRect(Window, NULL, TRUE);
-                        }
-                        else
-                        {
-                            FreeNotes();
-                            MessageBoxA(Window, "Invalid endFrame or payload data.", "Error 101", MB_OK | MB_ICONERROR);
-                        }
+                        totalTime = (float)noteStorage[noteCount - 1].endFrame / (44100.0f / 1024.0f);
                     }
+                    if (noteStorage[noteCount].endFrame == 0)
+                    {
+                        MessageBoxA(Window, "Endframe is 0, if you are confused please see the readme: https://github.com/minye065/Aud/blob/main/README.md ERROR101", "Error 101", MB_OK | MB_ICONERROR);
+                        break;
+                    }
+                    ShowWindow(InputBox, SW_HIDE);
+                    ShowWindow(DoneButton, SW_HIDE);
+                    ShowWindow(PlayButton, SW_SHOW);
+                    ShowWindow(StopButton, SW_SHOW);
+                    ShowWindow(BackButton, SW_SHOW);
+                    InvalidateRect(Window, NULL, TRUE);
                 }
                 else
                 {
-                    MessageBoxA(Window, "Not usable data, if you are confused please see the readme.", "Error 100", MB_OK | MB_ICONERROR);
+                    MessageBoxA(Window, "Not usable data, if you are confused please see the readme: https://github.com/minye065/Aud/blob/main/README.md ERROR100", "Error 100", MB_OK | MB_ICONERROR);
                 }
             }
         } break;
@@ -230,7 +218,7 @@ Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
             DeleteObject(BgBrush);
 
             float Ratio = 0.0f;
-            if (totalTime > 0.001f)
+            if (totalTime > 0.0f)
             {
                 Ratio = currentTime / totalTime;
                 if (Ratio > 1.0f) Ratio = 1.0f;
@@ -318,6 +306,7 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine
         );
         if (Window)
         {
+            OutputDebugStringA("window");
             GlobalRunning = TRUE;
             CurrentState = INPUT_STATE;
 
