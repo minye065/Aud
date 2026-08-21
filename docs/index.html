@@ -82,8 +82,8 @@
         const result = await encodeAudio(audioBuffer);
 
         status.textContent = `Done: ${file.name}`;
-        output.textContent = buildBundleText(result);
-        }
+        output.textContent = result;
+        
 
         uploadBtn.addEventListener('click', () => fileInput.click());
         fileInput.addEventListener('change', () => {

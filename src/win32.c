@@ -26,11 +26,15 @@ static DWORD PlayBufferSize = 44100 * sizeof(int16_t);
 static DWORD NextWriteOffset = 0;
 
 static int CurrentState = INIT_STATE;
+static int isPlaying;
 
 static float currentTime;
 static float totalTime;
+static float phase;
+static int noteCount;
 
 static char* input;
+note* noteStorage;
 
 LRESULT CALLBACK
 Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
@@ -62,7 +66,6 @@ Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
         MoveWindow(PlayButton, Width / 2 - 130, (Height / 3) * 2, 120, 30, TRUE);
         MoveWindow(StopButton, Width / 2 + 10, (Height / 3) * 2, 120, 30, TRUE);
         MoveWindow(BackButton, 40, 10, 120, 30, TRUE);
-        int GetWindowTextA(InputBox, input, 100000000);
     } break;
     case WM_COMMAND:
     {
@@ -78,6 +81,10 @@ Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
             ShowWindow(StopButton, SW_SHOW);
             ShowWindow(BackButton, SW_SHOW);
             InvalidateRect(Window, NULL, TRUE);
+            input = GetWindowTextA(InputBox, input, 100000000);
+            noteCount = input;
+            noteStorage = malloc(noteCount * sizeof(note))
+
         } break;
         case PLAY_BUTTON:
         {
@@ -287,7 +294,7 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine
                                 float mixedAmplitude = 0.0f;
                                 if (isPlaying && CurrentState == PLAYING_STATE)
                                 {
-                                    mixedAmplitude = getActiveNotes(currentTime);
+                                    mixedAmplitude = getActiveNotes(currentTime, input);
                                     currentTime += 1.0f / 44100.0f;
                                     if (currentTime >= totalTime)
                                     {
@@ -305,7 +312,7 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine
                                 float mixedAmplitude = 0.0f;
                                 if (isPlaying && CurrentState == PLAYING_STATE)
                                 {
-                                    mixedAmplitude = getActiveNotes(currentTime);
+                                    mixedAmplitude = getActiveNotes(currentTime, input);
                                     currentTime += 1.0f / 44100.0f;
                                     if (currentTime >= totalTime)
                                     {

@@ -16,6 +16,6 @@ typedef struct note
 } note;
 
 int noteOrdering(const void* a, const void* b);
-float getActiveNotes(float currentTime);
+float getActiveNotes(float currentTime, char* input);
 
 #endif
