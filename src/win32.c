@@ -3,6 +3,7 @@
 #include "app.h"
 #include <dsound.h>
 #include <stdint.h>
+#include <stdio.h>
 
 #define INPUT_BOX 11
 #define DONE_BUTTON 12
@@ -82,7 +83,7 @@ Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
             ShowWindow(BackButton, SW_SHOW);
             InvalidateRect(Window, NULL, TRUE);
             input = GetWindowTextA(InputBox, input, 100000000);
-            noteCount = input.;
+            noteCount = sscanf(input, "");
             noteStorage = malloc(noteCount * sizeof(note))
 
         } break;

@@ -82,7 +82,7 @@
         const result = await encodeAudio(audioBuffer);
 
         status.textContent = `Done: ${file.name}`;
-        output.textContent = result;
+        output.textContent = JSON.stringify(result, null, 2);
         }
 
         uploadBtn.addEventListener('click', () => fileInput.click());
