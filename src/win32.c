@@ -2,11 +2,11 @@
 #include <windows.h>
 #include "app.h"
 #include <dsound.h>
+#include <commdlg.h>
 #include <stdint.h>
 #include <stdio.h>
 
-#define INPUT_BOX 11
-#define DONE_BUTTON 12
+#define OPEN_BUTTON 13
 #define PLAY_BUTTON 41
 #define BLANK_BUTTON 42
 #define BACK_BUTTON 43
@@ -19,8 +19,7 @@
 static BOOL GlobalRunning;
 static HWND PlayButton;
 static HWND BlankButton;
-static HWND InputBox;
-static HWND DoneButton;
+static HWND OpenButton;
 static HWND BackButton;
 
 static LPDIRECTSOUNDBUFFER SecondaryBuffer;
@@ -60,6 +59,110 @@ void FreeNotes(void)
     }
 }
 
+void LoadNotes(HWND Window, char* text)
+{
+    char* start = strstr(text, "\"noteCount\":");
+    int parsedNoteCount = 0;
+    if (start && sscanf(start, "\"noteCount\": %d", &parsedNoteCount) == 1 && parsedNoteCount > 0)
+    {
+        FreeNotes();
+        noteStorage = malloc(parsedNoteCount * sizeof(note));
+        if (noteStorage)
+        {
+            memset(noteStorage, 0, parsedNoteCount * sizeof(note));
+            int parsedNotes = 0;
+            char* cursor = text;
+            for (int i = 0; i < parsedNoteCount; i++)
+            {
+                cursor = strstr(cursor, "\"fundamental\":");
+                if (!cursor || sscanf(cursor, "\"fundamental\": %f", &noteStorage[i].fundamental) != 1) break;
+                cursor = strstr(cursor, "\"startFrame\":");
+                if (!cursor || sscanf(cursor, "\"startFrame\": %d", &noteStorage[i].startFrame) != 1) break;
+                cursor = strstr(cursor, "\"endFrame\":");
+                if (!cursor || sscanf(cursor, "\"endFrame\": %d", &noteStorage[i].endFrame) != 1) break;
+                cursor = strstr(cursor, "\"envelopeLength\":");
+                if (!cursor || sscanf(cursor, "\"envelopeLength\": %d", &noteStorage[i].envelopeLength) != 1) break;
+                if (noteStorage[i].envelopeLength > 0)
+                {
+                    noteStorage[i].envelope = malloc(noteStorage[i].envelopeLength * sizeof(float));
+                    if (noteStorage[i].envelope)
+                    {
+                        memset(noteStorage[i].envelope, 0, noteStorage[i].envelopeLength * sizeof(float));
+                        char* envSection = strstr(cursor, "\"envelope\":");
+                        if (envSection)
+                        {
+                            for (int h = 0; h < noteStorage[i].envelopeLength; h++)
+                            {
+                                char searchStr[32];
+                                sprintf(searchStr, "\"%d\":", h);
+                                char* envCursor = strstr(envSection, searchStr);
+                                if (envCursor)
+                                {
+                                    char scanFormat[32];
+                                    sprintf(scanFormat, "\"%d\": %%f", h);
+                                    sscanf(envCursor, scanFormat, &noteStorage[i].envelope[h]);
+                                }
+                            }
+                        }
+                    }
+                }
+                cursor = strstr(cursor, "}");
+                if (!cursor) break;
+                parsedNotes = i + 1;
+            }
+            if (parsedNotes > 0)
+            {
+                noteCount = parsedNotes;
+                qsort(noteStorage, noteCount, sizeof(note), noteOrdering);
+                int maxEndFrame = 0;
+                for (int i = 0; i < noteCount; i++)
+                {
+                    noteStorage[i].startTime = (float)noteStorage[i].startFrame / (44100.0f / 1024.0f);
+                    noteStorage[i].endTime = (float)noteStorage[i].endFrame / (44100.0f / 1024.0f);
+                    if (noteStorage[i].endFrame > maxEndFrame) maxEndFrame = noteStorage[i].endFrame;
+                }
+                totalTime = (float)maxEndFrame / (44100.0f / 1024.0f);
+                if (maxEndFrame == 0)
+                {
+                    MessageBoxA(Window, "Endframe is 0, if you are confused please see the readme: https://github.com/minye065/Aud/blob/main/README.md ERROR101", "Error 101", MB_OK | MB_ICONERROR);
+                }
+                else
+                {
+                    phase = malloc(noteCount * sizeof(float));
+                    if (phase)
+                    {
+                        memset(phase, 0, noteCount * sizeof(float));
+                        CurrentState = PLAYING_STATE;
+                        ShowWindow(OpenButton, SW_HIDE);
+                        ShowWindow(PlayButton, SW_SHOW);
+                        ShowWindow(BlankButton, SW_SHOW);
+                        ShowWindow(BackButton, SW_SHOW);
+                        InvalidateRect(Window, NULL, TRUE);
+                    }
+                    else
+                    {
+                        FreeNotes();
+                        MessageBoxA(Window, "Out of memory", "Error", MB_OK | MB_ICONERROR);
+                    }
+                }
+            }
+            else
+            {
+                FreeNotes();
+                MessageBoxA(Window, "Not usable data, if you are confused please see the readme: https://github.com/minye065/Aud/blob/main/README.md ERROR100", "Error 100", MB_OK | MB_ICONERROR);
+            }
+        }
+        else
+        {
+            MessageBoxA(Window, "Out of memory", "Error", MB_OK | MB_ICONERROR);
+        }
+    }
+    else
+    {
+        MessageBoxA(Window, "Not usable data, if you are confused please see the readme: https://github.com/minye065/Aud/blob/main/README.md ERROR100", "Error 100", MB_OK | MB_ICONERROR);
+    }
+}
+
 LRESULT CALLBACK
 Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 {
@@ -85,8 +188,7 @@ Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
         {
             OutputDebugStringA("ERR - WM_SIZE call has state INIT");
         }
-        MoveWindow(InputBox, Width / 2 - 200, (Height / 3) - 100, 400, 200, TRUE);
-        MoveWindow(DoneButton, Width / 2 - 60, (Height / 3) * 2, 120, 30, TRUE);
+        MoveWindow(OpenButton, Width / 2 - 60, Height / 2 - 15, 120, 30, TRUE);
         MoveWindow(PlayButton, Width / 2 - 130, (Height / 3) * 2, 120, 30, TRUE);
         MoveWindow(BlankButton, Width / 2 + 10, (Height / 3) * 2, 120, 30, TRUE);
         MoveWindow(BackButton, 40, 10, 120, 30, TRUE);
@@ -95,119 +197,37 @@ Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
     {
         switch (LOWORD(WParam))
         {
-        case INPUT_BOX: break;
-        case DONE_BUTTON:
+        case OPEN_BUTTON:
         {
-            if (input)
+            OPENFILENAMEA OpenFileName = { 0 };
+            char FilePath[MAX_PATH] = { 0 };
+            OpenFileName.lStructSize = sizeof(OPENFILENAMEA);
+            OpenFileName.hwndOwner = Window;
+            OpenFileName.lpstrFilter = "Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0";
+            OpenFileName.lpstrFile = FilePath;
+            OpenFileName.nMaxFile = MAX_PATH;
+            OpenFileName.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+            if (GetOpenFileNameA(&OpenFileName))
             {
-                free(input);
-                input = NULL;
-            }
-            int textLength = GetWindowTextLength(InputBox);
-            input = malloc(textLength + 1);
-            if (input)
-            {
-                GetWindowTextA(InputBox, input, textLength + 1);
-                char* start = strstr(input, "\"noteCount\":");
-                int parsedNoteCount = 0;
-                if (start && sscanf(start, "\"noteCount\": %d", &parsedNoteCount) == 1 && parsedNoteCount > 0)
+                FILE* file = fopen(FilePath, "rb");
+                if (file)
                 {
-                    FreeNotes();
-                    noteStorage = malloc(parsedNoteCount * sizeof(note));
-                    if (noteStorage)
+                    fseek(file, 0, SEEK_END);
+                    long fileSize = ftell(file);
+                    fseek(file, 0, SEEK_SET);
+                    if (input)
                     {
-                        memset(noteStorage, 0, parsedNoteCount * sizeof(note));
-                        int parsedNotes = 0;
-                        char* cursor = input;
-                        for (int i = 0; i < parsedNoteCount; i++)
-                        {
-                            cursor = strstr(cursor, "\"fundamental\":");
-                            if (!cursor || sscanf(cursor, "\"fundamental\": %f", &noteStorage[i].fundamental) != 1) break;
-                            cursor = strstr(cursor, "\"startFrame\":");
-                            if (!cursor || sscanf(cursor, "\"startFrame\": %d", &noteStorage[i].startFrame) != 1) break;
-                            cursor = strstr(cursor, "\"endFrame\":");
-                            if (!cursor || sscanf(cursor, "\"endFrame\": %d", &noteStorage[i].endFrame) != 1) break;
-                            cursor = strstr(cursor, "\"envelopeLength\":");
-                            if (!cursor || sscanf(cursor, "\"envelopeLength\": %d", &noteStorage[i].envelopeLength) != 1) break;
-                            if (noteStorage[i].envelopeLength > 0)
-                            {
-                                noteStorage[i].envelope = malloc(noteStorage[i].envelopeLength * sizeof(float));
-                                if (noteStorage[i].envelope)
-                                {
-                                    memset(noteStorage[i].envelope, 0, noteStorage[i].envelopeLength * sizeof(float));
-                                    char* envSection = strstr(cursor, "\"envelope\":");
-                                    if (envSection)
-                                    {
-                                        for (int h = 0; h < noteStorage[i].envelopeLength; h++)
-                                        {
-                                            char searchStr[32];
-                                            sprintf(searchStr, "\"%d\":", h);
-                                            char* envCursor = strstr(envSection, searchStr);
-                                            if (envCursor)
-                                            {
-                                                char scanFormat[32];
-                                                sprintf(scanFormat, "\"%d\": %%f", h);
-                                                sscanf(envCursor, scanFormat, &noteStorage[i].envelope[h]);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            cursor = strstr(cursor, "}");
-                            if (!cursor) break;
-                            parsedNotes = i + 1;
-                        }
-                        if (parsedNotes > 0)
-                        {
-                            noteCount = parsedNotes;
-                            qsort(noteStorage, noteCount, sizeof(note), noteOrdering);
-                            int maxEndFrame = 0;
-                            for (int i = 0; i < noteCount; i++)
-                            {
-                                noteStorage[i].startTime = (float)noteStorage[i].startFrame / (44100.0f / 1024.0f);
-                                noteStorage[i].endTime = (float)noteStorage[i].endFrame / (44100.0f / 1024.0f);
-                                if (noteStorage[i].endFrame > maxEndFrame) maxEndFrame = noteStorage[i].endFrame;
-                            }
-                            totalTime = (float)maxEndFrame / (44100.0f / 1024.0f);
-                            if (maxEndFrame == 0)
-                            {
-                                MessageBoxA(Window, "Endframe is 0, if you are confused please see the readme: https://github.com/minye065/Aud/blob/main/README.md ERROR101", "Error 101", MB_OK | MB_ICONERROR);
-                            }
-                            else
-                            {
-                                phase = malloc(noteCount * sizeof(float));
-                                if (phase)
-                                {
-                                    memset(phase, 0, noteCount * sizeof(float));
-                                    CurrentState = PLAYING_STATE;
-                                    ShowWindow(InputBox, SW_HIDE);
-                                    ShowWindow(DoneButton, SW_HIDE);
-                                    ShowWindow(PlayButton, SW_SHOW);
-                                    ShowWindow(BlankButton, SW_SHOW);
-                                    ShowWindow(BackButton, SW_SHOW);
-                                    InvalidateRect(Window, NULL, TRUE);
-                                }
-                                else
-                                {
-                                    FreeNotes();
-                                    MessageBoxA(Window, "Out of memory", "Error", MB_OK | MB_ICONERROR);
-                                }
-                            }
-                        }
-                        else
-                        {
-                            FreeNotes();
-                            MessageBoxA(Window, "Not usable data, if you are confused please see the readme: https://github.com/minye065/Aud/blob/main/README.md ERROR100", "Error 100", MB_OK | MB_ICONERROR);
-                        }
+                        free(input);
+                        input = NULL;
                     }
-                    else
+                    input = malloc(fileSize + 1);
+                    if (input)
                     {
-                        MessageBoxA(Window, "Out of memory", "Error", MB_OK | MB_ICONERROR);
+                        fread(input, 1, fileSize, file);
+                        input[fileSize] = 0;
+                        LoadNotes(Window, input);
                     }
-                }
-                else
-                {
-                    MessageBoxA(Window, "Not usable data, if you are confused please see the readme: https://github.com/minye065/Aud/blob/main/README.md ERROR100", "Error 100", MB_OK | MB_ICONERROR);
+                    fclose(file);
                 }
             }
         } break;
@@ -241,8 +261,7 @@ Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
                 memset(phase, 0, noteCount * sizeof(float));
             }
             SetWindowTextA(PlayButton, "Play");
-            ShowWindow(InputBox, SW_SHOW);
-            ShowWindow(DoneButton, SW_SHOW);
+            ShowWindow(OpenButton, SW_SHOW);
             ShowWindow(PlayButton, SW_HIDE);
             ShowWindow(BlankButton, SW_HIDE);
             ShowWindow(BackButton, SW_HIDE);
@@ -376,11 +395,8 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine
                 Width / 2 - 130, (Height / 3) * 2, 120, 30, Window, (HMENU)PLAY_BUTTON, 0, 0);
             BlankButton = CreateWindowA("BUTTON", "", WS_CHILD,
                 Width / 2 + 10, (Height / 3) * 2, 120, 30, Window, (HMENU)BLANK_BUTTON, 0, 0);
-            InputBox = CreateWindowA("EDIT", "", WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL,
-                Width / 2 - 200, (Height / 3) - 100, 400, 200, Window, (HMENU)INPUT_BOX, 0, 0);
-            SendMessageA(InputBox, EM_SETLIMITTEXT, 0x7FFFFFFE, 0);
-            DoneButton = CreateWindowA("BUTTON", "Done", WS_CHILD | WS_VISIBLE,
-                Width / 2 - 60, (Height / 3) * 2, 120, 30, Window, (HMENU)DONE_BUTTON, 0, 0);
+            OpenButton = CreateWindowA("BUTTON", "Open", WS_CHILD | WS_VISIBLE,
+                Width / 2 - 60, Height / 2 - 15, 120, 30, Window, (HMENU)OPEN_BUTTON, 0, 0);
             BackButton = CreateWindowA("BUTTON", "Back", WS_CHILD,
                 40, 10, 120, 30, Window, (HMENU)BACK_BUTTON, 0, 0);
 
