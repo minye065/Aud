@@ -115,4 +115,4 @@ Another note, this project is made with the goal of having as few outside librar
   -- / --
 
 
-emcc web_encoder.c kissfft/kiss_fft.c kissfft/kiss_fftr.c -Ikissfft -O0 -s EXPORTED_FUNCTIONS="['_encode','_get_note_count','_get_envelope_ptr','_malloc','_free']" -s EXPORTED_RUNTIME_METHODS="['cwrap','HEAP32','HEAPF32']" -s ASSERTIONS=1 -s STACK_SIZE=16777216 -s ALLOW_MEMORY_GROWTH=1 -o encoder.js
+emcc web_encoder.c kissfft/kiss_fft.c kissfft/kiss_fftr.c -Ikissfft -O0 -s EXPORTzED_FUNCTIONS="['_encode','_get_note_count','_get_envelope_ptr','_malloc','_free']" -s EXPORTED_RUNTIME_METHODS="['cwrap','HEAP32','HEAPF32']" -s ASSERTIONS=1 -s STACK_SIZE=16777216 -s ALLOW_MEMORY_GROWTH=1 -o encoder.js

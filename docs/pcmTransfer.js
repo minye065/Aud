@@ -11,6 +11,10 @@ async function encodeAudio(audioBuffer) {
   Module.HEAPF32.set(samples, pcmPtr >> 2);
   const encode = Module.cwrap('encode', 'number', ['number', 'number', 'number']);
   const notesPtr = encode(pcmPtr, sampleCount, sampleRate);
+  if (!notesPtr) {
+    Module._free(pcmPtr);
+    return { noteCount: 0, sampleRate, notes: [] };
+  }
   const getCount = Module.cwrap('get_note_count', 'number', []);
   const getEnv = Module.cwrap('get_envelope_ptr', 'number', []);
   const count = getCount();
@@ -32,5 +36,5 @@ async function encodeAudio(audioBuffer) {
     notes.push({ fundamental, startFrame, endFrame, envelope, envelopeLength: envelopeLen });
   }
   Module._free(notesPtr);
-  return { noteCount: count, notes };
+  return { noteCount: count, sampleRate, notes };
 }

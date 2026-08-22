@@ -8,7 +8,7 @@
 #define INPUT_BOX 11
 #define DONE_BUTTON 12
 #define PLAY_BUTTON 41
-#define STOP_BUTTON 42
+#define BLANK_BUTTON 42
 #define BACK_BUTTON 43
 
 #define INIT_STATE 90
@@ -18,13 +18,14 @@
 
 static BOOL GlobalRunning;
 static HWND PlayButton;
-static HWND StopButton;
+static HWND BlankButton;
 static HWND InputBox;
 static HWND DoneButton;
 static HWND BackButton;
 
 static LPDIRECTSOUNDBUFFER SecondaryBuffer;
 static DWORD PlayBufferSize = 44100 * sizeof(int16_t);
+static DWORD SoundLatencyBytes = 50 * 44100 * sizeof(int16_t) / 1000;
 static DWORD NextWriteOffset = 0;
 
 static int CurrentState = INIT_STATE;
@@ -32,7 +33,6 @@ static int isPlaying;
 
 static float currentTime;
 static float totalTime;
-static float phase;
 static int noteCount;
 
 static char* input = 0;
@@ -40,6 +40,11 @@ note* noteStorage = 0;
 
 void FreeNotes(void)
 {
+    if (phase)
+    {
+        free(phase);
+        phase = NULL;
+    }
     if (noteStorage)
     {
         for (int i = 0; i < noteCount; i++)
@@ -83,7 +88,7 @@ Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
         MoveWindow(InputBox, Width / 2 - 200, (Height / 3) - 100, 400, 200, TRUE);
         MoveWindow(DoneButton, Width / 2 - 60, (Height / 3) * 2, 120, 30, TRUE);
         MoveWindow(PlayButton, Width / 2 - 130, (Height / 3) * 2, 120, 30, TRUE);
-        MoveWindow(StopButton, Width / 2 + 10, (Height / 3) * 2, 120, 30, TRUE);
+        MoveWindow(BlankButton, Width / 2 + 10, (Height / 3) * 2, 120, 30, TRUE);
         MoveWindow(BackButton, 40, 10, 120, 30, TRUE);
     } break;
     case WM_COMMAND:
@@ -104,25 +109,26 @@ Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
             {
                 GetWindowTextA(InputBox, input, textLength + 1);
                 char* start = strstr(input, "\"noteCount\":");
-                if (start && sscanf(start, "\"noteCount\": %d", &noteCount) == 1 && noteCount > 0)
+                int parsedNoteCount = 0;
+                if (start && sscanf(start, "\"noteCount\": %d", &parsedNoteCount) == 1 && parsedNoteCount > 0)
                 {
-                    CurrentState = PLAYING_STATE;
                     FreeNotes();
-                    noteStorage = malloc(noteCount * sizeof(note));
+                    noteStorage = malloc(parsedNoteCount * sizeof(note));
                     if (noteStorage)
                     {
-                        memset(noteStorage, 0, noteCount * sizeof(note));
+                        memset(noteStorage, 0, parsedNoteCount * sizeof(note));
+                        int parsedNotes = 0;
                         char* cursor = input;
-                        for (int i = 0; i < noteCount; i++)
+                        for (int i = 0; i < parsedNoteCount; i++)
                         {
                             cursor = strstr(cursor, "\"fundamental\":");
-                            if (cursor) sscanf(cursor, "\"fundamental\": %f", &noteStorage[i].fundamental);
+                            if (!cursor || sscanf(cursor, "\"fundamental\": %f", &noteStorage[i].fundamental) != 1) break;
                             cursor = strstr(cursor, "\"startFrame\":");
-                            if (cursor) sscanf(cursor, "\"startFrame\": %d", &noteStorage[i].startFrame);
+                            if (!cursor || sscanf(cursor, "\"startFrame\": %d", &noteStorage[i].startFrame) != 1) break;
                             cursor = strstr(cursor, "\"endFrame\":");
-                            if (cursor) sscanf(cursor, "\"endFrame\": %d", &noteStorage[i].endFrame);
+                            if (!cursor || sscanf(cursor, "\"endFrame\": %d", &noteStorage[i].endFrame) != 1) break;
                             cursor = strstr(cursor, "\"envelopeLength\":");
-                            if (cursor) sscanf(cursor, "\"envelopeLength\": %d", &noteStorage[i].envelopeLength);
+                            if (!cursor || sscanf(cursor, "\"envelopeLength\": %d", &noteStorage[i].envelopeLength) != 1) break;
                             if (noteStorage[i].envelopeLength > 0)
                             {
                                 noteStorage[i].envelope = malloc(noteStorage[i].envelopeLength * sizeof(float));
@@ -149,20 +155,55 @@ Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
                             }
                             cursor = strstr(cursor, "}");
                             if (!cursor) break;
+                            parsedNotes = i + 1;
                         }
-                        totalTime = (float)noteStorage[noteCount - 1].endFrame / (44100.0f / 1024.0f);
+                        if (parsedNotes > 0)
+                        {
+                            noteCount = parsedNotes;
+                            qsort(noteStorage, noteCount, sizeof(note), noteOrdering);
+                            int maxEndFrame = 0;
+                            for (int i = 0; i < noteCount; i++)
+                            {
+                                noteStorage[i].startTime = (float)noteStorage[i].startFrame / (44100.0f / 1024.0f);
+                                noteStorage[i].endTime = (float)noteStorage[i].endFrame / (44100.0f / 1024.0f);
+                                if (noteStorage[i].endFrame > maxEndFrame) maxEndFrame = noteStorage[i].endFrame;
+                            }
+                            totalTime = (float)maxEndFrame / (44100.0f / 1024.0f);
+                            if (maxEndFrame == 0)
+                            {
+                                MessageBoxA(Window, "Endframe is 0, if you are confused please see the readme: https://github.com/minye065/Aud/blob/main/README.md ERROR101", "Error 101", MB_OK | MB_ICONERROR);
+                            }
+                            else
+                            {
+                                phase = malloc(noteCount * sizeof(float));
+                                if (phase)
+                                {
+                                    memset(phase, 0, noteCount * sizeof(float));
+                                    CurrentState = PLAYING_STATE;
+                                    ShowWindow(InputBox, SW_HIDE);
+                                    ShowWindow(DoneButton, SW_HIDE);
+                                    ShowWindow(PlayButton, SW_SHOW);
+                                    ShowWindow(BlankButton, SW_SHOW);
+                                    ShowWindow(BackButton, SW_SHOW);
+                                    InvalidateRect(Window, NULL, TRUE);
+                                }
+                                else
+                                {
+                                    FreeNotes();
+                                    MessageBoxA(Window, "Out of memory", "Error", MB_OK | MB_ICONERROR);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            FreeNotes();
+                            MessageBoxA(Window, "Not usable data, if you are confused please see the readme: https://github.com/minye065/Aud/blob/main/README.md ERROR100", "Error 100", MB_OK | MB_ICONERROR);
+                        }
                     }
-                    if (noteStorage[noteCount].endFrame == 0)
+                    else
                     {
-                        MessageBoxA(Window, "Endframe is 0, if you are confused please see the readme: https://github.com/minye065/Aud/blob/main/README.md ERROR101", "Error 101", MB_OK | MB_ICONERROR);
-                        break;
+                        MessageBoxA(Window, "Out of memory", "Error", MB_OK | MB_ICONERROR);
                     }
-                    ShowWindow(InputBox, SW_HIDE);
-                    ShowWindow(DoneButton, SW_HIDE);
-                    ShowWindow(PlayButton, SW_SHOW);
-                    ShowWindow(StopButton, SW_SHOW);
-                    ShowWindow(BackButton, SW_SHOW);
-                    InvalidateRect(Window, NULL, TRUE);
                 }
                 else
                 {
@@ -172,24 +213,38 @@ Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
         } break;
         case PLAY_BUTTON:
         {
-            isPlaying = 1;
-        } break;
-        case STOP_BUTTON:
-        {
-            isPlaying = 0;
-            currentTime = 0.0f;
-            phase = 0.0f;
+            if (isPlaying)
+            {
+                isPlaying = 0;
+                currentTime = 0.0f;
+                if (phase)
+                {
+                    memset(phase, 0, noteCount * sizeof(float));
+                }
+                SetWindowTextA(PlayButton, "Play");
+            }
+            else
+            {
+                isPlaying = 1;
+                SetWindowTextA(PlayButton, "Stop");
+            }
             InvalidateRect(Window, NULL, FALSE);
         } break;
+        case BLANK_BUTTON: break;
         case BACK_BUTTON:
         {
             CurrentState = INPUT_STATE;
             isPlaying = 0;
             currentTime = 0.0f;
+            if (phase)
+            {
+                memset(phase, 0, noteCount * sizeof(float));
+            }
+            SetWindowTextA(PlayButton, "Play");
             ShowWindow(InputBox, SW_SHOW);
             ShowWindow(DoneButton, SW_SHOW);
             ShowWindow(PlayButton, SW_HIDE);
-            ShowWindow(StopButton, SW_HIDE);
+            ShowWindow(BlankButton, SW_HIDE);
             ShowWindow(BackButton, SW_HIDE);
             InvalidateRect(Window, NULL, TRUE);
         } break;
@@ -312,21 +367,21 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine
 
             InitDirectSound(Window);
 
-            RECT WindowRect;
-            GetWindowRect(Window, &WindowRect);
-            int Width = WindowRect.right - WindowRect.left;
-            int Height = WindowRect.bottom - WindowRect.top;
+            RECT ClientRect;
+            GetClientRect(Window, &ClientRect);
+            int Width = ClientRect.right - ClientRect.left;
+            int Height = ClientRect.bottom - ClientRect.top;
 
             PlayButton = CreateWindowA("BUTTON", "Play", WS_CHILD,
-                (Width / 2) - 60 - 40, (Height / 3) * 2, 120, 30, Window, (HMENU)PLAY_BUTTON, 0, 0);
-            StopButton = CreateWindowA("BUTTON", "Stop", WS_CHILD,
-                Width / 2 + 40, (Height / 3) * 2, 120, 30, Window, (HMENU)STOP_BUTTON, 0, 0);
+                Width / 2 - 130, (Height / 3) * 2, 120, 30, Window, (HMENU)PLAY_BUTTON, 0, 0);
+            BlankButton = CreateWindowA("BUTTON", "", WS_CHILD,
+                Width / 2 + 10, (Height / 3) * 2, 120, 30, Window, (HMENU)BLANK_BUTTON, 0, 0);
             InputBox = CreateWindowA("EDIT", "", WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL,
-                Width / 2 - 200, Height / 3 - 150, 400, 300, Window, (HMENU)INPUT_BOX, 0, 0);
+                Width / 2 - 200, (Height / 3) - 100, 400, 200, Window, (HMENU)INPUT_BOX, 0, 0);
             DoneButton = CreateWindowA("BUTTON", "Done", WS_CHILD | WS_VISIBLE,
-                Width / 2 - 40, (Height / 3) * 2, 120, 30, Window, (HMENU)DONE_BUTTON, 0, 0);
+                Width / 2 - 60, (Height / 3) * 2, 120, 30, Window, (HMENU)DONE_BUTTON, 0, 0);
             BackButton = CreateWindowA("BUTTON", "Back", WS_CHILD,
-                40, 10, 80, 20, Window, (HMENU)BACK_BUTTON, 0, 0);
+                40, 10, 120, 30, Window, (HMENU)BACK_BUTTON, 0, 0);
 
             while (GlobalRunning)
             {
@@ -345,16 +400,17 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine
                 DWORD WriteCursor = 0;
                 if (SecondaryBuffer && SUCCEEDED(IDirectSoundBuffer_GetCurrentPosition(SecondaryBuffer, &PlayCursor, &WriteCursor)))
                 {
+                    DWORD TargetOffset = (PlayCursor + SoundLatencyBytes) % PlayBufferSize;
                     DWORD BytesToWrite = 0;
-                    if (NextWriteOffset != PlayCursor)
+                    if (TargetOffset != NextWriteOffset)
                     {
-                        if (NextWriteOffset > PlayCursor)
+                        if (TargetOffset > NextWriteOffset)
                         {
-                            BytesToWrite = (PlayBufferSize - NextWriteOffset) + PlayCursor;
+                            BytesToWrite = TargetOffset - NextWriteOffset;
                         }
                         else
                         {
-                            BytesToWrite = PlayCursor - NextWriteOffset;
+                            BytesToWrite = (PlayBufferSize - NextWriteOffset) + TargetOffset;
                         }
                     }
 
@@ -380,8 +436,15 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine
                                     {
                                         isPlaying = 0;
                                         currentTime = 0.0f;
+                                        if (phase)
+                                        {
+                                            memset(phase, 0, noteCount * sizeof(float));
+                                        }
+                                        SetWindowTextA(PlayButton, "Play");
                                     }
                                 }
+                                if (mixedAmplitude > 1.0f) mixedAmplitude = 1.0f;
+                                if (mixedAmplitude < -1.0f) mixedAmplitude = -1.0f;
                                 *SampleOut++ = (int16_t)(mixedAmplitude * 32767.0f);
                             }
 
@@ -398,8 +461,15 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine
                                     {
                                         isPlaying = 0;
                                         currentTime = 0.0f;
+                                        if (phase)
+                                        {
+                                            memset(phase, 0, noteCount * sizeof(float));
+                                        }
+                                        SetWindowTextA(PlayButton, "Play");
                                     }
                                 }
+                                if (mixedAmplitude > 1.0f) mixedAmplitude = 1.0f;
+                                if (mixedAmplitude < -1.0f) mixedAmplitude = -1.0f;
                                 *SampleOut++ = (int16_t)(mixedAmplitude * 32767.0f);
                             }
 

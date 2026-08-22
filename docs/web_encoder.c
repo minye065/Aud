@@ -259,7 +259,7 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 				{
 					groupStartFrame = partialTrackStorage[targetRun2].startFrame;
 				}
-				if (partialTrackStorage[targetRun1].endFrame < partialTrackStorage[targetRun2].endFrame)
+				if (partialTrackStorage[targetRun1].endFrame > partialTrackStorage[targetRun2].endFrame)
 				{
 					groupEndFrame = partialTrackStorage[targetRun1].endFrame;
 				}
@@ -314,7 +314,7 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 				{
 					groupStartFrame = partialTrackStorage[targetRun2].startFrame;
 				}
-				if (partialTrackStorage[targetRun1].endFrame < partialTrackStorage[targetRun2].endFrame)
+				if (partialTrackStorage[targetRun1].endFrame > partialTrackStorage[targetRun2].endFrame)
 				{
 					groupEndFrame = partialTrackStorage[targetRun1].endFrame;
 				}
@@ -369,6 +369,10 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 			noteEventStorage[i] = thisNoteEvent;
 		}
 		noteCount = groupCounter;
+		if (envelopeBuffer)
+		{
+			free(envelopeBuffer);
+		}
 		envelopeBuffer = groupEnvelope;
 		result = noteEventStorage;
 		free(magnitudeStorage);

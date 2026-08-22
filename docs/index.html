@@ -1,3 +1,4 @@
+<!--AUD-->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -76,7 +77,7 @@
         output.textContent = '';
 
         const arrayBuffer = await file.arrayBuffer();
-        const audioContext = new AudioContext();
+        const audioContext = new AudioContext({ sampleRate: 44100 });
         const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
         const result = await encodeAudio(audioBuffer);
