@@ -37,7 +37,7 @@ Install emcc
 
  Compile
  ```
-	emcc web_encoder.c kissfft/kiss_fft.c kissfft/kiss_fftr.c -Ikissfft -O0 -s ALLOW_MEMORY_GROWTH=1 -s EXPORTED_FUNCTIONS="['_encode','_get_note_count','_get_envelope_ptr','_malloc','_free']" -s EXPORTED_RUNTIME_METHODS="['cwrap','HEAPF32','HEAP32']" -o encoder.js
+	emcc web_encoder.c kissfft/kiss_fft.c kissfft/kiss_fftr.c -Ikissfft -O0 -s ALLOW_MEMORY_GROWTH=1 -s EXPORTED_FUNCTIONS="['_encode','_get_note_count','_get_envelope_ptr','_cleanup_envelopes','_malloc','_free']" -s EXPORTED_RUNTIME_METHODS="['cwrap','HEAPF32','HEAP32']" -o encoder.js
  ```
 
  Push to git 
@@ -114,5 +114,6 @@ Another note, this project is made with the goal of having as few outside librar
  We use kissFFT as i am NOT writting a working fft library myself
   -- / --
 
-
-emcc web_encoder.c kissfft/kiss_fft.c kissfft/kiss_fftr.c -Ikissfft -O0 -s EXPORTzED_FUNCTIONS="['_encode','_get_note_count','_get_envelope_ptr','_malloc','_free']" -s EXPORTED_RUNTIME_METHODS="['cwrap','HEAP32','HEAPF32']" -s ASSERTIONS=1 -s STACK_SIZE=16777216 -s ALLOW_MEMORY_GROWTH=1 -o encoder.js
+C:\dev\include\emsdk\emsdk_env.ps1
+C:\dev\include\emsdk\emsdk_env.bat
+emcc web_encoder.c kissfft/kiss_fft.c kissfft/kiss_fftr.c -Ikissfft -O0 -s EXPORTED_FUNCTIONS="['_encode','_get_note_count','_get_envelope_ptr','_cleanup_envelopes','_malloc','_free']" -s EXPORTED_RUNTIME_METHODS="['cwrap','HEAP32','HEAPF32']" -s ASSERTIONS=1 -s STACK_SIZE=16777216 -s ALLOW_MEMORY_GROWTH=1 -o encoder.js

@@ -45,33 +45,20 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 		amountOfFrames = 1;
 	}
 	printf("totalSize=%u sampleRate=%u amountOfFrames=%u\n", totalSize, sampleRate, amountOfFrames);
-	float* frameStorage = malloc(amountOfFrames * frameSize * sizeof(float));
-	float* windowedFrameStorage = malloc(amountOfFrames * frameSize * sizeof(float));
+	float* frameBuffer = malloc(frameSize * sizeof(float));
 
-	if (frameStorage && windowedFrameStorage)
+	if (frameBuffer)
 	{
-		for (int k = 0; k < amountOfFrames; k++)
-		{
-			for (int i = 0; i < frameSize; i++)
-			{
-				unsigned int PCMPosition = k * hopSize + i;
-				frameStorage[k * frameSize + i] = passedInPCM[PCMPosition];
-			}
-		}
-
-		for (int k = 0; k < amountOfFrames; k++)
-		{
-			for (int i = 0; i < frameSize; i++)
-			{
-				windowedFrameStorage[k * frameSize + i] = frameStorage[k * frameSize + i] * hannTable[i];
-			}
-		}
 		kiss_fft_cpx spectrum[binSize];
-		float* magnitudeStorage = malloc(amountOfFrames * binSize * sizeof(float)); 
+		float* magnitudeStorage = malloc(amountOfFrames * binSize * sizeof(float));
 		float* peakHzStorage = malloc (amountOfFrames * sizeof(float));
 		for (int k = 0; k < amountOfFrames; k++)
 		{
-			kiss_fftr(cfg, &windowedFrameStorage[k * frameSize], spectrum);
+			for (int i = 0; i < frameSize; i++)
+			{
+				frameBuffer[i] = passedInPCM[k * hopSize + i] * hannTable[i];
+			}
+			kiss_fftr(cfg, frameBuffer, spectrum);
 
 			int bin = 0;
 			float highestMagnitude = 0;
@@ -94,6 +81,17 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 			float peakImaginary = highestMagnitude * sinf(peakPhaseStorage);
 			spectrum[bin].i -= peakImaginary;
 			spectrum[bin].r -= peakReal;
+		}
+
+		for (int k = 1; k < amountOfFrames - 1; k++)
+		{
+			float a = peakHzStorage[k - 1];
+			float b = peakHzStorage[k];
+			float c = peakHzStorage[k + 1];
+			float median = a;
+			if ((b >= a && b <= c) || (b <= a && b >= c)) median = b;
+			else if ((c >= a && c <= b) || (c <= a && c >= b)) median = c;
+			peakHzStorage[k] = median;
 		}
 
 		float upperbound = peakHzStorage[0] + 20;
@@ -244,7 +242,9 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 		free(partialTracksLeft);
 		int groupStartFrame;
 		int groupEndFrame;
-		int maxGroupLength = 0;
+		int totalEnvelopeLength = 0;
+		int* groupStartFrames = malloc(groupCounter * sizeof(int));
+		int* groupEndFrames = malloc(groupCounter * sizeof(int));
 		for (int i = 0; i < groupCounter; i++)
 		{
 			if (groupedFrequencyRuns[i][1] != -4)
@@ -267,29 +267,29 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 				{
 					groupEndFrame = partialTrackStorage[targetRun2].endFrame;
 				}
-
-				if ((groupEndFrame - groupStartFrame + 1) > maxGroupLength)
-				{
-					maxGroupLength = (groupEndFrame - groupStartFrame + 1);
-				}
 			}
 			else
 			{
 				int targetRun = groupedFrequencyRuns[i][0];
 				groupStartFrame = partialTrackStorage[targetRun].startFrame;
 				groupEndFrame = partialTrackStorage[targetRun].endFrame;
-				if ((groupEndFrame - groupStartFrame + 1) > maxGroupLength)
-				{
-					maxGroupLength = (groupEndFrame - groupStartFrame + 1);
-				}
 			}
+			groupStartFrames[i] = groupStartFrame;
+			groupEndFrames[i] = groupEndFrame;
+			totalEnvelopeLength += groupEndFrame - groupStartFrame + 1;
 		}
 
-		float* groupEnvelope = malloc(groupCounter * maxGroupLength * sizeof(float));
+		float* groupEnvelope = malloc(totalEnvelopeLength * sizeof(float));
 		noteEvent* noteEventStorage = malloc(groupCounter * sizeof(noteEvent));
+		int envelopeOffset = 0;
 		for (int i = 0; i < groupCounter; i++)
 		{
 			noteEvent thisNoteEvent;
+			groupStartFrame = groupStartFrames[i];
+			groupEndFrame = groupEndFrames[i];
+			thisNoteEvent.startFrame = groupStartFrame;
+			thisNoteEvent.endFrame = groupEndFrame;
+			thisNoteEvent.envelopeLength = groupEndFrame - groupStartFrame + 1;
 			if(groupedFrequencyRuns[i][1] != -4)
 			{
 				int targetRun1 = groupedFrequencyRuns[i][0];
@@ -305,25 +305,6 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 				{
 					thisNoteEvent.fundamental = frequency2;
 				}
-
-				if (partialTrackStorage[targetRun1].startFrame < partialTrackStorage[targetRun2].startFrame)
-				{
-					groupStartFrame = partialTrackStorage[targetRun1].startFrame;
-				}
-				else
-				{
-					groupStartFrame = partialTrackStorage[targetRun2].startFrame;
-				}
-				if (partialTrackStorage[targetRun1].endFrame > partialTrackStorage[targetRun2].endFrame)
-				{
-					groupEndFrame = partialTrackStorage[targetRun1].endFrame;
-				}
-				else
-				{
-					groupEndFrame = partialTrackStorage[targetRun2].endFrame;
-				}
-				thisNoteEvent.startFrame = groupStartFrame;
-				thisNoteEvent.endFrame = groupEndFrame;
 				for (int s = groupStartFrame; s <= groupEndFrame; s++)
 				{
 					float frameMagnitude = 0;
@@ -337,10 +318,8 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 						int bin2 = round(partialTrackStorage[targetRun2].peakHz * frameSize / sampleRate);
 						frameMagnitude += magnitudeStorage[s * binSize + bin2];
 					}
-					groupEnvelope[i * maxGroupLength + (s - groupStartFrame)] = frameMagnitude;
+					groupEnvelope[envelopeOffset + (s - groupStartFrame)] = frameMagnitude;
 				}
-				thisNoteEvent.envelope = &groupEnvelope[i * maxGroupLength];
-				thisNoteEvent.envelopeLength = groupEndFrame - groupStartFrame + 1;
 			}
 			else
 			{
@@ -349,8 +328,6 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 				thisNoteEvent.fundamental = frequency1;
 
 				int targetRun = groupedFrequencyRuns[i][0];
-				groupStartFrame = partialTrackStorage[targetRun].startFrame;
-				groupEndFrame = partialTrackStorage[targetRun].endFrame;
 
 				for (int s = groupStartFrame; s <= groupEndFrame; s++)
 				{
@@ -360,14 +337,16 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 						int bin1 = round(partialTrackStorage[targetRun].peakHz * frameSize / sampleRate);
 						frameMagnitude += magnitudeStorage[s * binSize + bin1];
 					}
-					groupEnvelope[i * maxGroupLength + (s - groupStartFrame)] = frameMagnitude;
+					groupEnvelope[envelopeOffset + (s - groupStartFrame)] = frameMagnitude;
 				}
-				thisNoteEvent.envelope = &groupEnvelope[i * maxGroupLength];
-				thisNoteEvent.envelopeLength = groupEndFrame - groupStartFrame + 1;
 			}
+			thisNoteEvent.envelope = &groupEnvelope[envelopeOffset];
+			envelopeOffset += thisNoteEvent.envelopeLength;
 			thisNoteEvent.itemID = i;
 			noteEventStorage[i] = thisNoteEvent;
 		}
+		free(groupStartFrames);
+		free(groupEndFrames);
 		noteCount = groupCounter;
 		if (envelopeBuffer)
 		{
@@ -380,10 +359,18 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 		free(groupedFrequencyRuns);
 	}
 	kiss_fftr_free(cfg);
-	free(frameStorage);
-	free(windowedFrameStorage);
+	free(frameBuffer);
 	return(result);
 }
 
 int get_note_count() { return noteCount; }
 float* get_envelope_ptr() { return envelopeBuffer; }
+void cleanup_envelopes()
+{
+	if (envelopeBuffer)
+	{
+		free(envelopeBuffer);
+		envelopeBuffer = NULL;
+	}
+	noteCount = 0;
+}

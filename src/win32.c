@@ -378,6 +378,7 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine
                 Width / 2 + 10, (Height / 3) * 2, 120, 30, Window, (HMENU)BLANK_BUTTON, 0, 0);
             InputBox = CreateWindowA("EDIT", "", WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL,
                 Width / 2 - 200, (Height / 3) - 100, 400, 200, Window, (HMENU)INPUT_BOX, 0, 0);
+            SendMessageA(InputBox, EM_SETLIMITTEXT, 0x7FFFFFFE, 0);
             DoneButton = CreateWindowA("BUTTON", "Done", WS_CHILD | WS_VISIBLE,
                 Width / 2 - 60, (Height / 3) * 2, 120, 30, Window, (HMENU)DONE_BUTTON, 0, 0);
             BackButton = CreateWindowA("BUTTON", "Back", WS_CHILD,

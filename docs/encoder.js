@@ -1696,6 +1696,7 @@ var _malloc = Module['_malloc'] = makeInvalidEarlyAccess('_malloc');
 var _free = Module['_free'] = makeInvalidEarlyAccess('_free');
 var _get_note_count = Module['_get_note_count'] = makeInvalidEarlyAccess('_get_note_count');
 var _get_envelope_ptr = Module['_get_envelope_ptr'] = makeInvalidEarlyAccess('_get_envelope_ptr');
+var _cleanup_envelopes = Module['_cleanup_envelopes'] = makeInvalidEarlyAccess('_cleanup_envelopes');
 var _fflush = makeInvalidEarlyAccess('_fflush');
 var _strerror = makeInvalidEarlyAccess('_strerror');
 var _emscripten_stack_get_end = makeInvalidEarlyAccess('_emscripten_stack_get_end');
@@ -1715,6 +1716,7 @@ function assignWasmExports(wasmExports) {
   assert(typeof wasmExports['free'] != 'undefined', 'missing Wasm export: free');
   assert(typeof wasmExports['get_note_count'] != 'undefined', 'missing Wasm export: get_note_count');
   assert(typeof wasmExports['get_envelope_ptr'] != 'undefined', 'missing Wasm export: get_envelope_ptr');
+  assert(typeof wasmExports['cleanup_envelopes'] != 'undefined', 'missing Wasm export: cleanup_envelopes');
   assert(typeof wasmExports['fflush'] != 'undefined', 'missing Wasm export: fflush');
   assert(typeof wasmExports['strerror'] != 'undefined', 'missing Wasm export: strerror');
   assert(typeof wasmExports['emscripten_stack_get_end'] != 'undefined', 'missing Wasm export: emscripten_stack_get_end');
@@ -1731,6 +1733,7 @@ function assignWasmExports(wasmExports) {
   _free = Module['_free'] = createExportWrapper('free', wasmExports['free'], 1);
   _get_note_count = Module['_get_note_count'] = createExportWrapper('get_note_count', wasmExports['get_note_count'], 0);
   _get_envelope_ptr = Module['_get_envelope_ptr'] = createExportWrapper('get_envelope_ptr', wasmExports['get_envelope_ptr'], 0);
+  _cleanup_envelopes = Module['_cleanup_envelopes'] = createExportWrapper('cleanup_envelopes', wasmExports['cleanup_envelopes'], 0);
   _fflush = createExportWrapper('fflush', wasmExports['fflush'], 1);
   _strerror = createExportWrapper('strerror', wasmExports['strerror'], 1);
   _emscripten_stack_get_end = wasmExports['emscripten_stack_get_end'];

@@ -36,5 +36,8 @@ async function encodeAudio(audioBuffer) {
     notes.push({ fundamental, startFrame, endFrame, envelope, envelopeLength: envelopeLen });
   }
   Module._free(notesPtr);
-  return { noteCount: count, sampleRate, notes };
+  const cleanupEnvelopes = Module.cwrap('cleanup_envelopes', null, []);
+  cleanupEnvelopes();
+  const usable = notes.filter(n => n.fundamental > 0);
+  return { noteCount: usable.length, sampleRate, notes: usable };
 }
