@@ -16,6 +16,7 @@ typedef struct note
 } note;
 
 extern float* phase;
+extern float* prevAmp;
 
 int noteOrdering(const void* a, const void* b);
 float getActiveNotes(float currentTime, int noteCount, note* noteStorage);
