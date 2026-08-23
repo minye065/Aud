@@ -18,7 +18,7 @@ typedef struct note
 extern float* phase;
 
 int noteOrdering(const void* a, const void* b);
-float getActiveNotes(float currentTime, char* input, int noteCount, note* noteStorage);
+float getActiveNotes(float currentTime, int noteCount, note* noteStorage);
 note* translate(char* text, int* outNoteCount);
 
 #endif

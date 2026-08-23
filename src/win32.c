@@ -34,6 +34,8 @@ static float currentTime;
 static float totalTime;
 static int noteCount;
 
+static float SourceSampleRate = 44100.0f;
+
 static char* input = 0;
 note* noteStorage = 0;
 
@@ -65,6 +67,16 @@ void LoadNotes(HWND Window, char* text)
     int parsedNoteCount = 0;
     if (start && sscanf(start, "\"noteCount\": %d", &parsedNoteCount) == 1 && parsedNoteCount > 0)
     {
+        SourceSampleRate = 44100.0f;
+        char* sampleRateStart = strstr(text, "\"sampleRate\":");
+        if (sampleRateStart)
+        {
+            float parsedSampleRate = 0;
+            if (sscanf(sampleRateStart, "\"sampleRate\": %f", &parsedSampleRate) == 1 && parsedSampleRate > 0)
+            {
+                SourceSampleRate = parsedSampleRate;
+            }
+        }
         FreeNotes();
         noteStorage = malloc(parsedNoteCount * sizeof(note));
         if (noteStorage)
@@ -117,11 +129,11 @@ void LoadNotes(HWND Window, char* text)
                 int maxEndFrame = 0;
                 for (int i = 0; i < noteCount; i++)
                 {
-                    noteStorage[i].startTime = (float)noteStorage[i].startFrame / (44100.0f / 1024.0f);
-                    noteStorage[i].endTime = (float)noteStorage[i].endFrame / (44100.0f / 1024.0f);
+                    noteStorage[i].startTime = (float)noteStorage[i].startFrame / (SourceSampleRate / 1024.0f);
+                    noteStorage[i].endTime = (float)noteStorage[i].endFrame / (SourceSampleRate / 1024.0f);
                     if (noteStorage[i].endFrame > maxEndFrame) maxEndFrame = noteStorage[i].endFrame;
                 }
-                totalTime = (float)maxEndFrame / (44100.0f / 1024.0f);
+                totalTime = (float)maxEndFrame / (SourceSampleRate / 1024.0f);
                 if (maxEndFrame == 0)
                 {
                     MessageBoxA(Window, "Endframe is 0, if you are confused please see the readme: https://github.com/minye065/Aud/blob/main/README.md ERROR101", "Error 101", MB_OK | MB_ICONERROR);
@@ -160,6 +172,32 @@ void LoadNotes(HWND Window, char* text)
     else
     {
         MessageBoxA(Window, "Not usable data, if you are confused please see the readme: https://github.com/minye065/Aud/blob/main/README.md ERROR100", "Error 100", MB_OK | MB_ICONERROR);
+    }
+}
+
+static void FillSamples(int16_t* SampleOut, DWORD SampleCount)
+{
+    for (DWORD Index = 0; Index < SampleCount; ++Index)
+    {
+        float mixedAmplitude = 0.0f;
+        if (isPlaying && CurrentState == PLAYING_STATE && noteStorage)
+        {
+            mixedAmplitude = getActiveNotes(currentTime, noteCount, noteStorage);
+            currentTime += 1.0f / 44100.0f;
+            if (currentTime >= totalTime)
+            {
+                isPlaying = 0;
+                currentTime = 0.0f;
+                if (phase)
+                {
+                    memset(phase, 0, noteCount * sizeof(float));
+                }
+                SetWindowTextA(PlayButton, "Play");
+            }
+        }
+        if (mixedAmplitude > 1.0f) mixedAmplitude = 1.0f;
+        if (mixedAmplitude < -1.0f) mixedAmplitude = -1.0f;
+        *SampleOut++ = (int16_t)(mixedAmplitude * 32767.0f);
     }
 }
 
@@ -440,55 +478,8 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine
 
                         if (SUCCEEDED(IDirectSoundBuffer_Lock(SecondaryBuffer, NextWriteOffset, BytesToWrite, &Ref1, &Size1, &Ref2, &Size2, 0)))
                         {
-                            int16_t* SampleOut = (int16_t*)Ref1;
-                            DWORD SampleCount1 = Size1 / sizeof(int16_t);
-                            for (DWORD Index = 0; Index < SampleCount1; ++Index)
-                            {
-                                float mixedAmplitude = 0.0f;
-                                if (isPlaying && CurrentState == PLAYING_STATE && noteStorage)
-                                {
-                                    mixedAmplitude = getActiveNotes(currentTime, input, noteCount, noteStorage);
-                                    currentTime += 1.0f / 44100.0f;
-                                    if (currentTime >= totalTime)
-                                    {
-                                        isPlaying = 0;
-                                        currentTime = 0.0f;
-                                        if (phase)
-                                        {
-                                            memset(phase, 0, noteCount * sizeof(float));
-                                        }
-                                        SetWindowTextA(PlayButton, "Play");
-                                    }
-                                }
-                                if (mixedAmplitude > 1.0f) mixedAmplitude = 1.0f;
-                                if (mixedAmplitude < -1.0f) mixedAmplitude = -1.0f;
-                                *SampleOut++ = (int16_t)(mixedAmplitude * 32767.0f);
-                            }
-
-                            SampleOut = (int16_t*)Ref2;
-                            DWORD SampleCount2 = Size2 / sizeof(int16_t);
-                            for (DWORD Index = 0; Index < SampleCount2; ++Index)
-                            {
-                                float mixedAmplitude = 0.0f;
-                                if (isPlaying && CurrentState == PLAYING_STATE && noteStorage)
-                                {
-                                    mixedAmplitude = getActiveNotes(currentTime, input, noteCount, noteStorage);
-                                    currentTime += 1.0f / 44100.0f;
-                                    if (currentTime >= totalTime)
-                                    {
-                                        isPlaying = 0;
-                                        currentTime = 0.0f;
-                                        if (phase)
-                                        {
-                                            memset(phase, 0, noteCount * sizeof(float));
-                                        }
-                                        SetWindowTextA(PlayButton, "Play");
-                                    }
-                                }
-                                if (mixedAmplitude > 1.0f) mixedAmplitude = 1.0f;
-                                if (mixedAmplitude < -1.0f) mixedAmplitude = -1.0f;
-                                *SampleOut++ = (int16_t)(mixedAmplitude * 32767.0f);
-                            }
+                            FillSamples((int16_t*)Ref1, Size1 / sizeof(int16_t));
+                            FillSamples((int16_t*)Ref2, Size2 / sizeof(int16_t));
 
                             IDirectSoundBuffer_Unlock(SecondaryBuffer, Ref1, Size1, Ref2, Size2);
                             NextWriteOffset = (NextWriteOffset + BytesToWrite) % PlayBufferSize;

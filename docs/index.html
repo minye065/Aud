@@ -62,7 +62,7 @@
 
         async function handleFile(file) {
         status.textContent = `Processing: ${file.name}`;
-
+        try {
         const arrayBuffer = await file.arrayBuffer();
         const audioContext = new AudioContext({ sampleRate: 44100 });
         const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
@@ -78,6 +78,9 @@
         URL.revokeObjectURL(url);
 
         status.textContent = `Done: ${file.name}`;
+        } catch (err) {
+        status.textContent = `Failed: ${err.message || err}`;
+        }
         }
 
         uploadBtn.addEventListener('click', () => fileInput.click());
