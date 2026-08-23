@@ -39,5 +39,18 @@ async function encodeAudio(audioBuffer) {
   const cleanupEnvelopes = Module.cwrap('cleanup_envelopes', null, []);
   cleanupEnvelopes();
   const usable = notes.filter(n => n.fundamental > 0);
+  let loudest = 0;
+  for (const n of usable) {
+    for (let j = 0; j < n.envelope.length; j++) {
+      if (n.envelope[j] > loudest) loudest = n.envelope[j];
+    }
+  }
+  if (loudest > 0) {
+    for (const n of usable) {
+      for (let j = 0; j < n.envelope.length; j++) {
+        n.envelope[j] /= loudest;
+      }
+    }
+  }
   return { noteCount: usable.length, sampleRate, notes: usable };
 }

@@ -11,7 +11,7 @@ int noteOrdering(const void* a, const void* b)
 	return noteA->startFrame - noteB->startFrame;
 }
 
-float getActiveNotes(float currentTime, char* input, int noteCount, note* noteStorage)
+float getActiveNotes(float currentTime, int noteCount, note* noteStorage)
 {
 	float mixedAmplitude = 0.0f;
 	for (int i = 0; i < noteCount; i++)
@@ -33,7 +33,7 @@ float getActiveNotes(float currentTime, char* input, int noteCount, note* noteSt
 			decimalNumberValue = noteStorage[i].envelope[envelopeIndex + 1];
 		}
 		float decimalPercent = position - wholePosition;
-		mixedAmplitude += sin(phase[i]) * (decimalNumberValue * decimalPercent) + (wholeNumberValue * (1 - decimalPercent));
+		mixedAmplitude += sin(phase[i]) * (decimalNumberValue * decimalPercent + wholeNumberValue * (1 - decimalPercent));
 		phase[i] += 2 * PI * noteStorage[i].fundamental / 44100.0f;
 		if (phase[i] >= 2 * PI)
 		{
