@@ -8,7 +8,7 @@
 
 #define OPEN_BUTTON 13
 #define PLAY_BUTTON 41
-#define BLANK_BUTTON 42
+#define RESTART_BUTTON 42
 #define BACK_BUTTON 43
 
 #define INIT_STATE 90
@@ -18,7 +18,7 @@
 
 static BOOL GlobalRunning;
 static HWND PlayButton;
-static HWND BlankButton;
+static HWND RestartButton;
 static HWND OpenButton;
 static HWND BackButton;
 
@@ -45,6 +45,11 @@ void FreeNotes(void)
     {
         free(phase);
         phase = NULL;
+    }
+    if (prevAmp)
+    {
+        free(prevAmp);
+        prevAmp = NULL;
     }
     if (noteStorage)
     {
@@ -92,6 +97,7 @@ void LoadNotes(HWND Window, char* text)
                 if (!cursor || sscanf(cursor, "\"startFrame\": %d", &noteStorage[i].startFrame) != 1) break;
                 cursor = strstr(cursor, "\"endFrame\":");
                 if (!cursor || sscanf(cursor, "\"endFrame\": %d", &noteStorage[i].endFrame) != 1) break;
+                char* envSection = strstr(cursor, "\"envelope\":");
                 cursor = strstr(cursor, "\"envelopeLength\":");
                 if (!cursor || sscanf(cursor, "\"envelopeLength\": %d", &noteStorage[i].envelopeLength) != 1) break;
                 if (noteStorage[i].envelopeLength > 0)
@@ -100,19 +106,22 @@ void LoadNotes(HWND Window, char* text)
                     if (noteStorage[i].envelope)
                     {
                         memset(noteStorage[i].envelope, 0, noteStorage[i].envelopeLength * sizeof(float));
-                        char* envSection = strstr(cursor, "\"envelope\":");
                         if (envSection)
                         {
-                            for (int h = 0; h < noteStorage[i].envelopeLength; h++)
+                            char* envStart = strchr(envSection, '{');
+                            char* envEnd = envStart ? strchr(envStart, '}') : NULL;
+                            if (envStart && envEnd)
                             {
-                                char searchStr[32];
-                                sprintf(searchStr, "\"%d\":", h);
-                                char* envCursor = strstr(envSection, searchStr);
-                                if (envCursor)
+                                char* p = envStart + 1;
+                                for (int h = 0; h < noteStorage[i].envelopeLength; h++)
                                 {
-                                    char scanFormat[32];
-                                    sprintf(scanFormat, "\"%d\": %%f", h);
-                                    sscanf(envCursor, scanFormat, &noteStorage[i].envelope[h]);
+                                    char* colon = strchr(p, ':');
+                                    if (!colon || colon > envEnd) break;
+                                    char* next = NULL;
+                                    float value = strtof(colon + 1, &next);
+                                    if (next == colon + 1) break;
+                                    noteStorage[i].envelope[h] = value;
+                                    p = next;
                                 }
                             }
                         }
@@ -141,13 +150,15 @@ void LoadNotes(HWND Window, char* text)
                 else
                 {
                     phase = malloc(noteCount * sizeof(float));
-                    if (phase)
+                    prevAmp = malloc(noteCount * sizeof(float));
+                    if (phase && prevAmp)
                     {
                         memset(phase, 0, noteCount * sizeof(float));
+                        memset(prevAmp, 0, noteCount * sizeof(float));
                         CurrentState = PLAYING_STATE;
                         ShowWindow(OpenButton, SW_HIDE);
                         ShowWindow(PlayButton, SW_SHOW);
-                        ShowWindow(BlankButton, SW_SHOW);
+                        ShowWindow(RestartButton, SW_SHOW);
                         ShowWindow(BackButton, SW_SHOW);
                         InvalidateRect(Window, NULL, TRUE);
                     }
@@ -192,7 +203,11 @@ static void FillSamples(int16_t* SampleOut, DWORD SampleCount)
                 {
                     memset(phase, 0, noteCount * sizeof(float));
                 }
-                SetWindowTextA(PlayButton, "Play");
+                if (prevAmp)
+                {
+                    memset(prevAmp, 0, noteCount * sizeof(float));
+                }
+                SetWindowTextA(PlayButton, "Start");
             }
         }
         if (mixedAmplitude > 1.0f) mixedAmplitude = 1.0f;
@@ -228,7 +243,7 @@ Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
         }
         MoveWindow(OpenButton, Width / 2 - 60, Height / 2 - 15, 120, 30, TRUE);
         MoveWindow(PlayButton, Width / 2 - 130, (Height / 3) * 2, 120, 30, TRUE);
-        MoveWindow(BlankButton, Width / 2 + 10, (Height / 3) * 2, 120, 30, TRUE);
+        MoveWindow(RestartButton, Width / 2 + 10, (Height / 3) * 2, 120, 30, TRUE);
         MoveWindow(BackButton, 40, 10, 120, 30, TRUE);
     } break;
     case WM_COMMAND:
@@ -274,21 +289,42 @@ Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
             if (isPlaying)
             {
                 isPlaying = 0;
-                currentTime = 0.0f;
-                if (phase)
-                {
-                    memset(phase, 0, noteCount * sizeof(float));
-                }
-                SetWindowTextA(PlayButton, "Play");
+                SetWindowTextA(PlayButton, "Resume");
             }
             else
             {
+                if (currentTime >= totalTime && totalTime > 0.0f)
+                {
+                    currentTime = 0.0f;
+                    if (phase)
+                    {
+                        memset(phase, 0, noteCount * sizeof(float));
+                    }
+                    if (prevAmp)
+                    {
+                        memset(prevAmp, 0, noteCount * sizeof(float));
+                    }
+                }
                 isPlaying = 1;
-                SetWindowTextA(PlayButton, "Stop");
+                SetWindowTextA(PlayButton, "Pause");
             }
             InvalidateRect(Window, NULL, FALSE);
         } break;
-        case BLANK_BUTTON: break;
+        case RESTART_BUTTON:
+        {
+            currentTime = 0.0f;
+            if (phase)
+            {
+                memset(phase, 0, noteCount * sizeof(float));
+            }
+            if (prevAmp)
+            {
+                memset(prevAmp, 0, noteCount * sizeof(float));
+            }
+            isPlaying = 1;
+            SetWindowTextA(PlayButton, "Pause");
+            InvalidateRect(Window, NULL, FALSE);
+        } break;
         case BACK_BUTTON:
         {
             CurrentState = INPUT_STATE;
@@ -298,10 +334,14 @@ Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
             {
                 memset(phase, 0, noteCount * sizeof(float));
             }
-            SetWindowTextA(PlayButton, "Play");
+            if (prevAmp)
+            {
+                memset(prevAmp, 0, noteCount * sizeof(float));
+            }
+            SetWindowTextA(PlayButton, "Start");
             ShowWindow(OpenButton, SW_SHOW);
             ShowWindow(PlayButton, SW_HIDE);
-            ShowWindow(BlankButton, SW_HIDE);
+            ShowWindow(RestartButton, SW_HIDE);
             ShowWindow(BackButton, SW_HIDE);
             InvalidateRect(Window, NULL, TRUE);
         } break;
@@ -429,10 +469,10 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine
             int Width = ClientRect.right - ClientRect.left;
             int Height = ClientRect.bottom - ClientRect.top;
 
-            PlayButton = CreateWindowA("BUTTON", "Play", WS_CHILD,
+            PlayButton = CreateWindowA("BUTTON", "Start", WS_CHILD,
                 Width / 2 - 130, (Height / 3) * 2, 120, 30, Window, (HMENU)PLAY_BUTTON, 0, 0);
-            BlankButton = CreateWindowA("BUTTON", "", WS_CHILD,
-                Width / 2 + 10, (Height / 3) * 2, 120, 30, Window, (HMENU)BLANK_BUTTON, 0, 0);
+            RestartButton = CreateWindowA("BUTTON", "Restart", WS_CHILD,
+                Width / 2 + 10, (Height / 3) * 2, 120, 30, Window, (HMENU)RESTART_BUTTON, 0, 0);
             OpenButton = CreateWindowA("BUTTON", "Open", WS_CHILD | WS_VISIBLE,
                 Width / 2 - 60, Height / 2 - 15, 120, 30, Window, (HMENU)OPEN_BUTTON, 0, 0);
             BackButton = CreateWindowA("BUTTON", "Back", WS_CHILD,

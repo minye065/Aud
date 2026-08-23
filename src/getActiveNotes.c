@@ -3,6 +3,7 @@
 #include "app.h"
 
 float* phase;
+float* prevAmp;
 
 int noteOrdering(const void* a, const void* b)
 {
@@ -33,7 +34,27 @@ float getActiveNotes(float currentTime, int noteCount, note* noteStorage)
 			decimalNumberValue = noteStorage[i].envelope[envelopeIndex + 1];
 		}
 		float decimalPercent = position - wholePosition;
-		mixedAmplitude += sin(phase[i]) * (decimalNumberValue * decimalPercent + wholeNumberValue * (1 - decimalPercent));
+		float targetAmplitude = decimalNumberValue * decimalPercent + wholeNumberValue * (1 - decimalPercent);
+		float smoothedAmplitude = prevAmp[i];
+		if (smoothedAmplitude < 0.0001f && targetAmplitude <= 0.0f)
+		{
+			smoothedAmplitude = 0.0f;
+			prevAmp[i] = 0.0f;
+			phase[i] += 2 * PI * noteStorage[i].fundamental / 44100.0f;
+			if (phase[i] >= 2 * PI)
+			{
+				phase[i] -= 2 * PI;
+			}
+			continue;
+		}
+		float rampRate = targetAmplitude > smoothedAmplitude ? 0.03f : 0.008f;
+		smoothedAmplitude += (targetAmplitude - smoothedAmplitude) * rampRate;
+		if (targetAmplitude <= 0.0f && smoothedAmplitude < 0.0001f)
+		{
+			smoothedAmplitude = 0.0f;
+		}
+		prevAmp[i] = smoothedAmplitude;
+		mixedAmplitude += sin(phase[i]) * smoothedAmplitude;
 		phase[i] += 2 * PI * noteStorage[i].fundamental / 44100.0f;
 		if (phase[i] >= 2 * PI)
 		{
