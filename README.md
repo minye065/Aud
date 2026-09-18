@@ -77,4 +77,5 @@ How audio works, deleted bc people think it looks ai (i wrote it myself)
 
 
 Demo?
-![demo](https://cdn.hackclub.com/01a0b68c-0eab-7822-83f3-ffde89f4b027/screen_recording_2026-09-18_150056.mp4)
+no embed bc too big :(
+(https://cdn.hackclub.com/01a0b68c-0eab-7822-83f3-ffde89f4b027/screen_recording_2026-09-18_150056.mp4
