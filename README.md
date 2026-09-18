@@ -1,5 +1,6 @@
 # Aud
-!(Aud)[https://cdn.hackclub.com/01a08c5f-7b59-73fb-ad83-d0eafa050ddd/image.png]
+![Aud](https://cdn.hackclub.com/01a08c5f-7b59-73fb-ad83-d0eafa050ddd/image.png)
+
 
 Aud is a two part project made up of a website and a windows app.
 The website is done and can be found at https://minye065.github.io/Aud/.
