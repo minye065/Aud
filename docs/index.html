@@ -48,7 +48,7 @@
 </head>
 <body>
     <div id="zone">
-        <input type="file" id="fileInput" hidden>
+        <input type="file" id="fileInput" hidden accept=".mp3,.wav,.mp4,audio/mpeg,audio/wav,audio/x-wav,video/mp4,audio/mp4">
         <button id="uploadBtn">Upload file</button>
         <p id="status"></p>
     </div>
@@ -61,6 +61,12 @@
         const status = document.getElementById('status');
 
         async function handleFile(file) {
+        const dot = file.name.lastIndexOf('.');
+        const ext = dot >= 0 ? file.name.slice(dot).toLowerCase() : '';
+        if (ext !== '.mp3' && ext !== '.wav' && ext !== '.mp4') {
+        status.textContent = `Unsupported: ${file.name} - only mp3, wav, mp4`;
+        return;
+        }
         status.textContent = `Processing: ${file.name}`;
         try {
         const arrayBuffer = await file.arrayBuffer();
