@@ -8,4 +8,4 @@ bin/
 .vs/
 *.ilk
 *.pdb
-*.obj
+*.obj   
