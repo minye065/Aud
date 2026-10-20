@@ -4,7 +4,16 @@ const runtimeReady = new Promise((resolve) => {
 async function encodeAudio(audioBuffer) {
   await runtimeReady;
 
-  const samples = audioBuffer.getChannelData(0);
+  const channelCount = audioBuffer.numberOfChannels;
+  const samples = new Float32Array(audioBuffer.length);
+  for (let c = 0; c < channelCount; c++)
+  {
+    const channelData = audioBuffer.getChannelData(c);
+    for (let i = 0; i < samples.length; i++)
+    {
+      samples[i] += channelData[i] / channelCount;
+    }
+  }  
   const sampleRate = audioBuffer.sampleRate;
   const sampleCount = samples.length;
   const pcmPtr = Module._malloc(sampleCount * 4);

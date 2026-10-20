@@ -4,3 +4,8 @@
 
 /.vs
 C:\dev\Aud\src\translator.c
+bin/
+.vs/
+*.ilk
+*.pdb
+*.obj

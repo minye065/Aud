@@ -80,6 +80,7 @@ void LoadNotes(HWND Window, char* text)
             if (sscanf(sampleRateStart, "\"sampleRate\": %f", &parsedSampleRate) == 1 && parsedSampleRate > 0)
             {
                 SourceSampleRate = parsedSampleRate;
+                songSampleRate = SourceSampleRate;
             }
         }
         FreeNotes();
@@ -237,10 +238,7 @@ Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
     {
         int Width = LOWORD(LParam);
         int Height = HIWORD(LParam);
-        if (CurrentState == INIT_STATE)
-        {
-            OutputDebugStringA("ERR - WM_SIZE call has state INIT");
-        }
+        if(!OpenButton || !PlayButton || !RestartButton || !BackButton) break;
         MoveWindow(OpenButton, Width / 2 - 60, Height / 2 - 15, 120, 30, TRUE);
         MoveWindow(PlayButton, Width / 2 - 130, (Height / 3) * 2, 120, 30, TRUE);
         MoveWindow(RestartButton, Width / 2 + 10, (Height / 3) * 2, 120, 30, TRUE);
@@ -273,11 +271,11 @@ Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
                         free(input);
                         input = NULL;
                     }
-                    input = malloc(fileSize + 1);
+                    input = fileSize > 0 ? malloc(fileSize + 1): NULL;
                     if (input)
                     {
-                        fread(input, 1, fileSize, file);
-                        input[fileSize] = 0;
+                        size_t bytesRead = fread(input, 1, fileSize, file);
+                        input[bytesRead] = 0;
                         LoadNotes(Window, input);
                     }
                     fclose(file);

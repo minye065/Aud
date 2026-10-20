@@ -4,6 +4,7 @@
 
 float* phase;
 float* prevAmp;
+float songSampleRate = 44100.0f;
 
 int noteOrdering(const void* a, const void* b)
 {
@@ -21,7 +22,7 @@ float getActiveNotes(float currentTime, int noteCount, note* noteStorage)
 		if (noteStorage[i].endTime < currentTime) continue;
 		if (!noteStorage[i].envelope) continue;
 		float timeUntilNote = currentTime - noteStorage[i].startTime;
-		float hopDuration = 1024.0f / 44100.0f;
+		float hopDuration = 1024.0f / songSampleRate;
 		float position = timeUntilNote / hopDuration;
 		float wholePosition = floor(position);
 		int envelopeIndex = (int)wholePosition;

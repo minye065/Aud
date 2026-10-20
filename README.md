@@ -48,7 +48,7 @@ Install emcc
  Compile
  ```
 	cd ../docs
-	emcc web_encoder.c kissfft/kiss_fft.c kissfft/kiss_fftr.c -Ikissfft -O0 -s ALLOW_MEMORY_GROWTH=1 -s EXPORTED_FUNCTIONS="['_encode','_get_note_count','_get_envelope_ptr','_cleanup_envelopes','_malloc','_free']" -s EXPORTED_RUNTIME_METHODS="['cwrap','HEAPF32','HEAP32']" -o encoder.js
+	emcc web_encoder.c kissfft/kiss_fft.c kissfft/kiss_fftr.c -Ikissfft -O3 -s ALLOW_MEMORY_GROWTH=1 -s EXPORTED_FUNCTIONS="['_encode','_get_note_count','_get_envelope_ptr','_cleanup_envelopes','_malloc','_free']" -s EXPORTED_RUNTIME_METHODS="['cwrap','HEAPF32','HEAP32']" -o encoder.js
  ```
 
  Push to git 
