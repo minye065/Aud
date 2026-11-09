@@ -22,199 +22,401 @@ static HWND RestartButton;
 static HWND OpenButton;
 static HWND BackButton;
 
+static LPDIRECTSOUND8 DirectSound;
 static LPDIRECTSOUNDBUFFER SecondaryBuffer;
 static DWORD PlayBufferSize = 44100 * sizeof(int16_t);
 static DWORD SoundLatencyBytes = 50 * 44100 * sizeof(int16_t) / 1000;
 static DWORD NextWriteOffset = 0;
 
-static int CurrentState = INIT_STATE;
+static int currentState = INIT_STATE;
 static int isPlaying;
 
 static float currentTime;
 static float totalTime;
-static int noteCount;
-
-static float SourceSampleRate = 44100.0f;
+static int64_t playbackSample;
 
 static char* input = 0;
-note* noteStorage = 0;
+static song currentSong;
 
-void FreeNotes(void)
+static HBRUSH progressBarPlayedBrush;
+static HBRUSH progressBarRemainingBrush;
+static int lastProgressBarFillWidth = -1;
+
+void freeNotes(void)
 {
-    if (phase)
-    {
-        free(phase);
-        phase = NULL;
-    }
-    if (prevAmp)
-    {
-        free(prevAmp);
-        prevAmp = NULL;
-    }
-    if (noteStorage)
-    {
-        for (int i = 0; i < noteCount; i++)
-        {
-            if (noteStorage[i].envelope)
-            {
-                free(noteStorage[i].envelope);
-                noteStorage[i].envelope = NULL;
-            }
-        }
-        free(noteStorage);
-        noteStorage = NULL;
-    }
+    free(currentSong.notes);
+    memset(&currentSong, 0, sizeof(currentSong));
 }
 
-void LoadNotes(HWND Window, char* text)
+void InitDirectSound(HWND Window, int sampleRate);
+
+void loadNotes(HWND Window, char* text)
 {
-    char* start = strstr(text, "\"noteCount\":");
-    int parsedNoteCount = 0;
-    if (start && sscanf(start, "\"noteCount\": %d", &parsedNoteCount) == 1 && parsedNoteCount > 0)
+    freeNotes();
+    char* itemName;
+    item newItem;
+    int lineNumber = 0;
+    int firstLine = 0;
+    const char* errorText = NULL;
+    char message[160];
+    char warnings[512];
+    size_t warningLength = 0;
+
+    char* lineStart = text;
+    while (*lineStart)
     {
-        SourceSampleRate = 44100.0f;
-        char* sampleRateStart = strstr(text, "\"sampleRate\":");
-        if (sampleRateStart)
+        char* lineEnd = lineStart;
+        while (*lineEnd && *lineEnd != '\n') lineEnd++;
+        char* nextLine = *lineEnd ? lineEnd + 1 : lineEnd;
+        *lineEnd = 0;
+        char* line = lineStart;
+        lineStart = nextLine;
+        lineNumber++;
+        char* hash = strchr(line, '#');
+        if (hash) *hash = 0;
+        while (*line == ' ' || *line == '\t' || *line == '\r') line++;
+        size_t length = strlen(line);
+        while (length > 0 && (line[length - 1] == ' ' || line[length - 1] == '\t' || line[length - 1] == '\r')) line[--length] = 0;
+        if (length == 0) continue;
+        char* word = strtok(line, " \t");
+        if (!firstLine)
         {
-            float parsedSampleRate = 0;
-            if (sscanf(sampleRateStart, "\"sampleRate\": %f", &parsedSampleRate) == 1 && parsedSampleRate > 0)
+            if (strcmp(word, "AUD") != 0)
             {
-                SourceSampleRate = parsedSampleRate;
-                songSampleRate = SourceSampleRate;
+                errorText = "first line must be AUD songName sampleRate hop";
+                goto fail;
             }
+            char* songNameWord = strtok(NULL, " \t");
+            char* sampleRateWord = strtok(NULL, " \t");
+            char* hopWord = strtok(NULL, " \t");
+            if (!songNameWord || !sampleRateWord || !hopWord)
+            {
+                errorText = "missing songName, sampleRate, hop";
+                goto fail;
+            }
+            if (strlen(songNameWord) >= sizeof(currentSong.name))
+            {
+                errorText = "songName too long";
+                goto fail;
+            }
+            memcpy(currentSong.name, songNameWord, strlen(songNameWord) + 1);
+            char* sampleRateEnd;
+            char* hopEnd;
+            long parsedSampleRate = strtol(sampleRateWord, &sampleRateEnd, 10);
+            long parsedHop = strtol(hopWord, &hopEnd, 10);
+            if (*sampleRateEnd != 0 || *hopEnd != 0 || parsedSampleRate <= 0 || parsedHop <= 0)
+            {
+                errorText = "sampleRate, hop must be whole numbers > 0";
+                goto fail;
+            }
+            currentSong.sampleRate = (int)parsedSampleRate;
+            currentSong.hop = (int)parsedHop;
+            firstLine = 1;
         }
-        FreeNotes();
-        noteStorage = malloc(parsedNoteCount * sizeof(note));
-        if (noteStorage)
+        else if (strcmp(word, "item") == 0)
         {
-            memset(noteStorage, 0, parsedNoteCount * sizeof(note));
-            int parsedNotes = 0;
-            char* cursor = text;
-            for (int i = 0; i < parsedNoteCount; i++)
+            itemName = strtok(NULL, " \t");
+            if (!itemName)
             {
-                cursor = strstr(cursor, "\"fundamental\":");
-                if (!cursor || sscanf(cursor, "\"fundamental\": %f", &noteStorage[i].fundamental) != 1) break;
-                cursor = strstr(cursor, "\"startFrame\":");
-                if (!cursor || sscanf(cursor, "\"startFrame\": %d", &noteStorage[i].startFrame) != 1) break;
-                cursor = strstr(cursor, "\"endFrame\":");
-                if (!cursor || sscanf(cursor, "\"endFrame\": %d", &noteStorage[i].endFrame) != 1) break;
-                char* envSection = strstr(cursor, "\"envelope\":");
-                cursor = strstr(cursor, "\"envelopeLength\":");
-                if (!cursor || sscanf(cursor, "\"envelopeLength\": %d", &noteStorage[i].envelopeLength) != 1) break;
-                if (noteStorage[i].envelopeLength > 0)
-                {
-                    noteStorage[i].envelope = malloc(noteStorage[i].envelopeLength * sizeof(float));
-                    if (noteStorage[i].envelope)
-                    {
-                        memset(noteStorage[i].envelope, 0, noteStorage[i].envelopeLength * sizeof(float));
-                        if (envSection)
-                        {
-                            char* envStart = strchr(envSection, '{');
-                            char* envEnd = envStart ? strchr(envStart, '}') : NULL;
-                            if (envStart && envEnd)
-                            {
-                                char* p = envStart + 1;
-                                for (int h = 0; h < noteStorage[i].envelopeLength; h++)
-                                {
-                                    char* colon = strchr(p, ':');
-                                    if (!colon || colon > envEnd) break;
-                                    char* next = NULL;
-                                    float value = strtof(colon + 1, &next);
-                                    if (next == colon + 1) break;
-                                    noteStorage[i].envelope[h] = value;
-                                    p = next;
-                                }
-                            }
-                        }
-                    }
-                }
-                cursor = strstr(cursor, "}");
-                if (!cursor) break;
-                parsedNotes = i + 1;
+                errorText = "itemName missing";
+                goto fail;
             }
-            if (parsedNotes > 0)
+            if (strlen(itemName) >= sizeof(newItem.name))
             {
-                noteCount = parsedNotes;
-                qsort(noteStorage, noteCount, sizeof(note), noteOrdering);
-                int maxEndFrame = 0;
-                for (int i = 0; i < noteCount; i++)
+                errorText = "itemName too long";
+                goto fail;
+            }
+            if (currentSong.itemCount >= (int)(sizeof(currentSong.items) / sizeof(currentSong.items[0])))
+            {
+                errorText = "too many items (max 32)";
+                goto fail;
+            }
+            for (int i = 0; i < currentSong.itemCount; i++)
+            {
+                if (strcmp(currentSong.items[i].name, itemName) == 0)
                 {
-                    noteStorage[i].startTime = (float)noteStorage[i].startFrame / (SourceSampleRate / 1024.0f);
-                    noteStorage[i].endTime = (float)noteStorage[i].endFrame / (SourceSampleRate / 1024.0f);
-                    if (noteStorage[i].endFrame > maxEndFrame) maxEndFrame = noteStorage[i].endFrame;
+                    errorText = "duplicate itemName";
+                    goto fail;
                 }
-                totalTime = (float)maxEndFrame / (SourceSampleRate / 1024.0f);
-                if (maxEndFrame == 0)
+            }
+            memset(&newItem, 0, sizeof(newItem));
+            memcpy(newItem.name, itemName, strlen(itemName) + 1);
+            newItem.isTonal = true;
+
+            char* refWord = strtok(NULL, " \t");
+            if (!refWord)
+            {
+                errorText = "item missing ref";
+                goto fail;
+            }
+            char* refEnd;
+            newItem.startingPitch = strtof(refWord, &refEnd);
+            if (refEnd == refWord || *refEnd != 0 || newItem.startingPitch <= 0)
+            {
+                errorText = "ref must > 0";
+                goto fail;
+            }
+
+            char* harmonicsWord = strtok(NULL, " \t");
+            if (!harmonicsWord)
+            {
+                errorText = "item missing harmoincs";
+                goto fail;
+            }
+            char* harmonicsCursor = harmonicsWord;
+            int harmonicsCount = 0;
+            newItem.attack = 0.01f;
+            newItem.decay = 0.1f;
+            newItem.sustain = 1.0f;
+            newItem.release = 0.1f;
+            while (1)
+            {
+                char* harmonicEnd;
+                float parsedHarmonicAmplitude = strtof(harmonicsCursor, &harmonicEnd);
+                if (harmonicEnd == harmonicsCursor)
                 {
-                    MessageBoxA(Window, "Endframe is 0, if you are confused please see the readme: https://github.com/minye065/Aud/blob/main/README.md ERROR101", "Error 101", MB_OK | MB_ICONERROR);
+                    errorText = "harmonics not formatted correctly";
+                    goto fail;
                 }
+                if (harmonicsCount >= 16)
+                {
+                    errorText = "harmonics <= 16 values";
+                    goto fail;
+                }
+                newItem.harmonics[harmonicsCount] = parsedHarmonicAmplitude;
+                harmonicsCount++;
+                if (*harmonicEnd == 0) break;
+                if (*harmonicEnd != ',')
+                {
+                    errorText = "harmonics not seperated by comma";
+                    goto fail;
+                }
+                harmonicsCursor = harmonicEnd + 1;
+            }
+            newItem.harmonicsCount = harmonicsCount;
+
+            char* option;
+            while ((option = strtok(NULL, " \t")))
+            {
+                const char* warningText = NULL;
+                char* value = strchr(option, ':');
+                if (!value) warningText = "an option value has been ignored (text is null)";
                 else
                 {
-                    phase = malloc(noteCount * sizeof(float));
-                    prevAmp = malloc(noteCount * sizeof(float));
-                    if (phase && prevAmp)
+                    *value = 0;
+                    value++;
+                    if (strcmp(option, "adsr") == 0)
                     {
-                        memset(phase, 0, noteCount * sizeof(float));
-                        memset(prevAmp, 0, noteCount * sizeof(float));
-                        CurrentState = PLAYING_STATE;
-                        ShowWindow(OpenButton, SW_HIDE);
-                        ShowWindow(PlayButton, SW_SHOW);
-                        ShowWindow(RestartButton, SW_SHOW);
-                        ShowWindow(BackButton, SW_SHOW);
-                        InvalidateRect(Window, NULL, TRUE);
+                        float parsedAttack, parsedDecay, parsedSustain, parsedRelease;
+                        int adsrCharsRead = 0;
+                        if (sscanf(value, "%f,%f,%f,%f%n", &parsedAttack, &parsedDecay, &parsedSustain, &parsedRelease, &adsrCharsRead) != 4 || value[adsrCharsRead] != 0) warningText = "adsr must be 4 comma-separated numbers (ignored)";
+                        else if (parsedAttack < 0 || parsedDecay < 0 || parsedRelease < 0 || parsedSustain < 0 || parsedSustain > 1) warningText = "adsr needs a,d,r >= 0 and 0 <= s <= 1 (ignored)";
+                        else
+                        {
+                            newItem.attack = parsedAttack;
+                            newItem.decay = parsedDecay;
+                            newItem.sustain = parsedSustain;
+                            newItem.release = parsedRelease;
+                        }
                     }
-                    else
+                    else if (strcmp(option, "kind") == 0)
                     {
-                        FreeNotes();
-                        MessageBoxA(Window, "Out of memory", "Error", MB_OK | MB_ICONERROR);
+                        if (strcmp(value, "noise") == 0) newItem.isTonal = false;
+                        else if (strcmp(value, "tonal") == 0) newItem.isTonal = true;
+                        else warningText = "kind must be tonal or noise (ignored)";
                     }
+                    else warningText = "unknown option, ignored";
+                }
+                if (warningText && warningLength < sizeof(warnings))
+                {
+                    warningLength += snprintf(warnings + warningLength, sizeof(warnings) - warningLength, "Line %d: %s\n", lineNumber, warningText);
                 }
             }
-            else
+            currentSong.items[currentSong.itemCount++] = newItem;
+        }
+        else if (strcmp(word, "use") == 0)
+        {
+            char* targetItemNameWord = strtok(NULL, " \t");
+            if (targetItemNameWord == NULL)
             {
-                FreeNotes();
-                MessageBoxA(Window, "Not usable data, if you are confused please see the readme: https://github.com/minye065/Aud/blob/main/README.md ERROR100", "Error 100", MB_OK | MB_ICONERROR);
+                errorText = "use missing item name";
+                goto fail;
             }
+            int targetIndexPos = -1;
+            for (int i = 0; i < currentSong.itemCount; i++)
+            {
+                if (strcmp(currentSong.items[i].name, targetItemNameWord) == 0)
+                {
+                    targetIndexPos = i;
+                    break;
+                }
+            }
+            if (targetIndexPos == -1)
+            {
+                errorText = "use names item that does not exist";
+                goto fail;
+            }
+            if (!currentSong.items[targetIndexPos].isTonal) continue;
+
+            note parsedUseNote;
+            memset(&parsedUseNote, 0, sizeof(parsedUseNote));
+            parsedUseNote.itemIdentifier = targetIndexPos;
+            parsedUseNote.tone = 0.0f;
+            parsedUseNote.gain = 1.0f;
+            parsedUseNote.startFrame = -1;
+            parsedUseNote.endFrame = -1;
+
+            char* useOptionWord;
+            while ((useOptionWord = strtok(NULL, " \t")))
+            {
+                const char* warningText = NULL;
+                char* useOptionValue = strchr(useOptionWord, ':');
+                if (!useOptionValue) warningText = "a use option has no ':' (ignored)";
+                else
+                {
+                    *useOptionValue = 0;
+                    useOptionValue++;
+                    if (strcmp(useOptionWord, "tone") == 0)
+                    {
+                        char* toneCentsEnd;
+                        long parsedToneCents = strtol(useOptionValue, &toneCentsEnd, 10);
+                        if (toneCentsEnd == useOptionValue || *toneCentsEnd != 0) warningText = "tone must be whole cents (ignored)";
+                        else parsedUseNote.tone = (float)parsedToneCents;
+                    }
+                    else if (strcmp(useOptionWord, "frame") == 0)
+                    {
+                        char* startFrameEnd;
+                        long parsedStartFrame = strtol(useOptionValue, &startFrameEnd, 10);
+                        if (startFrameEnd == useOptionValue || *startFrameEnd != '-')
+                        {
+                            errorText = "frame must be start-end";
+                            goto fail;
+                        }
+                        char* endFrameText = startFrameEnd + 1;
+                        char* endFrameEnd;
+                        long parsedEndFrame = strtol(endFrameText, &endFrameEnd, 10);
+                        if (endFrameEnd == endFrameText || *endFrameEnd != 0)
+                        {
+                            errorText = "frame must be start-end";
+                            goto fail;
+                        }
+                        if (parsedStartFrame < 0 || parsedEndFrame <= parsedStartFrame)
+                        {
+                            errorText = "frame needs start >= 0 and end > start";
+                            goto fail;
+                        }
+                        parsedUseNote.startFrame = (int)parsedStartFrame;
+                        parsedUseNote.endFrame = (int)parsedEndFrame;
+                    }
+                    else if (strcmp(useOptionWord, "gain") == 0)
+                    {
+                        char* gainEnd;
+                        float parsedGain = strtof(useOptionValue, &gainEnd);
+                        if (gainEnd == useOptionValue || *gainEnd != 0 || parsedGain < 0) warningText = "gain must be a number >= 0 (ignored)";
+                        else parsedUseNote.gain = parsedGain;
+                    }
+                    else warningText = "unknown use option, ignored";
+                }
+                if (warningText && warningLength < sizeof(warnings))
+                {
+                    warningLength += snprintf(warnings + warningLength, sizeof(warnings) - warningLength, "Line %d: %s\n", lineNumber, warningText);
+                }
+            }
+            if (parsedUseNote.startFrame == -1)
+            {
+                errorText = "use missing frame";
+                goto fail;
+            }
+
+            if (currentSong.noteCount == currentSong.noteCapacity)
+            {
+                int currentlyReserveredNoteMem = currentSong.noteCapacity ? currentSong.noteCapacity * 2 : 64;
+                note* reallocatedSongNotes = realloc(currentSong.notes, currentlyReserveredNoteMem * sizeof(note));
+                if(!reallocatedSongNotes)
+                {
+                    errorText = "out of memory";
+                    goto fail;
+                }
+                currentSong.notes = reallocatedSongNotes;
+                currentSong.noteCapacity = currentlyReserveredNoteMem;
+            }
+            currentSong.notes[currentSong.noteCount++] = parsedUseNote;
         }
         else
         {
-            MessageBoxA(Window, "Out of memory", "Error", MB_OK | MB_ICONERROR);
+            errorText = "unknown line type (expected item or use)";
+            goto fail;
         }
     }
-    else
+    if (!firstLine)
     {
-        MessageBoxA(Window, "Not usable data, if you are confused please see the readme: https://github.com/minye065/Aud/blob/main/README.md ERROR100", "Error 100", MB_OK | MB_ICONERROR);
+        errorText = "empty file or missing AUD header";
+        goto fail;
     }
+    if (currentSong.noteCount == 0)
+    {
+        errorText = "song has no playable use lines";
+        goto fail;
+    }
+    qsort(currentSong.notes, currentSong.noteCount, sizeof(note), noteOrdering);
+    currentState = PLAYING_STATE;
+    totalTime = 0.0f;
+    for(int i = 0; i < currentSong.noteCount; i++)
+    {
+        item* itemOfTargetNote = &currentSong.items[currentSong.notes[i].itemIdentifier];
+        float thisTotalTime = (float)currentSong.notes[i].endFrame * currentSong.hop / currentSong.sampleRate + itemOfTargetNote->release;
+        if(thisTotalTime > totalTime) totalTime = thisTotalTime;
+
+    }
+    playbackSample = 0;
+    currentTime = 0.0f;
+    isPlaying = 0;
+    lastProgressBarFillWidth = -1;
+    SetWindowTextA(PlayButton, "Start");
+    InitDirectSound(Window, currentSong.sampleRate);
+    ShowWindow(PlayButton, SW_SHOW);
+    ShowWindow(RestartButton, SW_SHOW);
+    ShowWindow(BackButton, SW_SHOW);
+    ShowWindow(OpenButton, SW_HIDE);
+    if (warningLength > 0) MessageBoxA(Window, warnings, "Warning", MB_OK | MB_ICONWARNING);
+    return;
+
+    fail:
+    freeNotes();
+    snprintf(message, sizeof(message), "Line %d: %s", lineNumber, errorText);
+    MessageBoxA(Window, message, "Error", MB_OK | MB_ICONERROR);
 }
 
-static void FillSamples(int16_t* SampleOut, DWORD SampleCount)
+static void fillSamples(int16_t* sampleOut, DWORD sampleCount, int64_t startSample)
 {
-    for (DWORD Index = 0; Index < SampleCount; ++Index)
+    if(!isPlaying)
     {
-        float mixedAmplitude = 0.0f;
-        if (isPlaying && CurrentState == PLAYING_STATE && noteStorage)
-        {
-            mixedAmplitude = getActiveNotes(currentTime, noteCount, noteStorage);
-            currentTime += 1.0f / 44100.0f;
-            if (currentTime >= totalTime)
-            {
-                isPlaying = 0;
-                currentTime = 0.0f;
-                if (phase)
-                {
-                    memset(phase, 0, noteCount * sizeof(float));
-                }
-                if (prevAmp)
-                {
-                    memset(prevAmp, 0, noteCount * sizeof(float));
-                }
-                SetWindowTextA(PlayButton, "Start");
-            }
-        }
-        if (mixedAmplitude > 1.0f) mixedAmplitude = 1.0f;
-        if (mixedAmplitude < -1.0f) mixedAmplitude = -1.0f;
-        *SampleOut++ = (int16_t)(mixedAmplitude * 32767.0f);
+        memset(sampleOut, 0, sampleCount * sizeof(int16_t));
+        return;
     }
+    getActiveNotes(&currentSong, sampleOut, sampleCount, startSample);
+}
+
+static RECT getProgressBarRect(HWND Window)
+{
+    RECT clientRect;
+    GetClientRect(Window, &clientRect);
+    int clientWidth = clientRect.right - clientRect.left;
+    int clientHeight = clientRect.bottom - clientRect.top;
+    RECT progressBarRect;
+    progressBarRect.left = clientWidth / 2 - 150;
+    progressBarRect.right = clientWidth / 2 + 150;
+    progressBarRect.top = ((clientHeight / 3) * 2) - 30;
+    progressBarRect.bottom = progressBarRect.top + 8;
+    return progressBarRect;
+}
+
+static int getProgressBarFillWidth(RECT progressBarRect)
+{
+    float playedRatio = totalTime > 0.0f ? currentTime / totalTime : 0.0f;
+    if (playedRatio > 1.0f) playedRatio = 1.0f;
+    if (playedRatio < 0.0f) playedRatio = 0.0f;
+    return (int)((progressBarRect.right - progressBarRect.left) * playedRatio);
 }
 
 LRESULT CALLBACK
@@ -276,7 +478,7 @@ Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
                     {
                         size_t bytesRead = fread(input, 1, fileSize, file);
                         input[bytesRead] = 0;
-                        LoadNotes(Window, input);
+                        loadNotes(Window, input);
                     }
                     fclose(file);
                 }
@@ -294,14 +496,7 @@ Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
                 if (currentTime >= totalTime && totalTime > 0.0f)
                 {
                     currentTime = 0.0f;
-                    if (phase)
-                    {
-                        memset(phase, 0, noteCount * sizeof(float));
-                    }
-                    if (prevAmp)
-                    {
-                        memset(prevAmp, 0, noteCount * sizeof(float));
-                    }
+                    playbackSample = 0;
                 }
                 isPlaying = 1;
                 SetWindowTextA(PlayButton, "Pause");
@@ -311,31 +506,17 @@ Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
         case RESTART_BUTTON:
         {
             currentTime = 0.0f;
-            if (phase)
-            {
-                memset(phase, 0, noteCount * sizeof(float));
-            }
-            if (prevAmp)
-            {
-                memset(prevAmp, 0, noteCount * sizeof(float));
-            }
+            playbackSample = 0;
             isPlaying = 1;
             SetWindowTextA(PlayButton, "Pause");
             InvalidateRect(Window, NULL, FALSE);
         } break;
         case BACK_BUTTON:
         {
-            CurrentState = INPUT_STATE;
+            currentState = INPUT_STATE;
             isPlaying = 0;
             currentTime = 0.0f;
-            if (phase)
-            {
-                memset(phase, 0, noteCount * sizeof(float));
-            }
-            if (prevAmp)
-            {
-                memset(prevAmp, 0, noteCount * sizeof(float));
-            }
+            playbackSample = 0;
             SetWindowTextA(PlayButton, "Start");
             ShowWindow(OpenButton, SW_SHOW);
             ShowWindow(PlayButton, SW_HIDE);
@@ -352,35 +533,18 @@ Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
         RECT ClientRect;
         GetClientRect(Window, &ClientRect);
 
-        if (CurrentState == PLAYING_STATE)
+        if (currentState == PLAYING_STATE)
         {
-            int Width = ClientRect.right - ClientRect.left;
-            int Height = ClientRect.bottom - ClientRect.top;
+            RECT progressBarRect = getProgressBarRect(Window);
+            int progressBarFillWidth = getProgressBarFillWidth(progressBarRect);
 
-            RECT BarRect;
-            BarRect.left = Width / 2 - 150;
-            BarRect.right = Width / 2 + 150;
-            BarRect.top = ((Height / 3) * 2) - 30;
-            BarRect.bottom = BarRect.top + 8;
+            RECT playedRect = progressBarRect;
+            playedRect.right = progressBarRect.left + progressBarFillWidth;
+            RECT remainingRect = progressBarRect;
+            remainingRect.left = playedRect.right;
 
-            HBRUSH BgBrush = CreateSolidBrush(RGB(100, 100, 100));
-            FillRect(DeviceContext, &BarRect, BgBrush);
-            DeleteObject(BgBrush);
-
-            float Ratio = 0.0f;
-            if (totalTime > 0.0f)
-            {
-                Ratio = currentTime / totalTime;
-                if (Ratio > 1.0f) Ratio = 1.0f;
-                if (Ratio < 0.0f) Ratio = 0.0f;
-            }
-
-            RECT FillRectArea = BarRect;
-            FillRectArea.right = FillRectArea.left + (int)((BarRect.right - BarRect.left) * Ratio);
-
-            HBRUSH FillBrush = CreateSolidBrush(RGB(0, 255, 128));
-            FillRect(DeviceContext, &FillRectArea, FillBrush);
-            DeleteObject(FillBrush);
+            FillRect(DeviceContext, &playedRect, progressBarPlayedBrush);
+            FillRect(DeviceContext, &remainingRect, progressBarRemainingBrush);
         }
 
         EndPaint(Window, &Paint);
@@ -395,40 +559,53 @@ Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
     return (Result);
 }
 
-void InitDirectSound(HWND Window)
+void InitDirectSound(HWND Window, int sampleRate)
 {
-    LPDIRECTSOUND8 DirectSound;
-    if (SUCCEEDED(DirectSoundCreate8(NULL, &DirectSound, NULL)))
+    if (!DirectSound)
     {
-        if (SUCCEEDED(IDirectSound8_SetCooperativeLevel(DirectSound, Window, DSSCL_PRIORITY)))
+        if (FAILED(DirectSoundCreate8(NULL, &DirectSound, NULL))) return;
+        if (FAILED(IDirectSound8_SetCooperativeLevel(DirectSound, Window, DSSCL_PRIORITY)))
         {
-            WAVEFORMATEX WaveFormat = { 0 };
-            WaveFormat.wFormatTag = WAVE_FORMAT_PCM;
-            WaveFormat.nChannels = 1;
-            WaveFormat.nSamplesPerSec = 44100;
-            WaveFormat.wBitsPerSample = 16;
-            WaveFormat.nBlockAlign = (WaveFormat.nChannels * WaveFormat.wBitsPerSample) / 8;
-            WaveFormat.nAvgBytesPerSec = WaveFormat.nSamplesPerSec * WaveFormat.nBlockAlign;
-            DSBUFFERDESC PrimaryBufferDesc = { 0 };
-            PrimaryBufferDesc.dwSize = sizeof(PrimaryBufferDesc);
-            PrimaryBufferDesc.dwFlags = DSBCAPS_PRIMARYBUFFER;
-            LPDIRECTSOUNDBUFFER PrimaryBuffer;
-            if (SUCCEEDED(IDirectSound8_CreateSoundBuffer(DirectSound, &PrimaryBufferDesc, &PrimaryBuffer, NULL)))
-            {
-                IDirectSoundBuffer_SetFormat(PrimaryBuffer, &WaveFormat);
-                IDirectSoundBuffer_Release(PrimaryBuffer);
-            }
-            DSBUFFERDESC SecondaryBufferDesc = { 0 };
-            SecondaryBufferDesc.dwSize = sizeof(SecondaryBufferDesc);
-            SecondaryBufferDesc.dwFlags = DSBCAPS_GETCURRENTPOSITION2;
-            SecondaryBufferDesc.dwBufferBytes = PlayBufferSize;
-            SecondaryBufferDesc.lpwfxFormat = &WaveFormat;
-
-            if (SUCCEEDED(IDirectSound8_CreateSoundBuffer(DirectSound, &SecondaryBufferDesc, &SecondaryBuffer, NULL)))
-            {
-                IDirectSoundBuffer_Play(SecondaryBuffer, 0, 0, DSBPLAY_LOOPING);
-            }
+            IDirectSound8_Release(DirectSound);
+            DirectSound = NULL;
+            return;
         }
+    }
+    if (SecondaryBuffer)
+    {
+        IDirectSoundBuffer_Stop(SecondaryBuffer);
+        IDirectSoundBuffer_Release(SecondaryBuffer);
+        SecondaryBuffer = NULL;
+    }
+    PlayBufferSize = sampleRate * sizeof(int16_t);
+    SoundLatencyBytes = 80 * sampleRate * sizeof(int16_t) / 1000;
+    NextWriteOffset = 0;
+
+    WAVEFORMATEX WaveFormat = { 0 };
+    WaveFormat.wFormatTag = WAVE_FORMAT_PCM;
+    WaveFormat.nChannels = 1;
+    WaveFormat.nSamplesPerSec = sampleRate;
+    WaveFormat.wBitsPerSample = 16;
+    WaveFormat.nBlockAlign = (WaveFormat.nChannels * WaveFormat.wBitsPerSample) / 8;
+    WaveFormat.nAvgBytesPerSec = WaveFormat.nSamplesPerSec * WaveFormat.nBlockAlign;
+    DSBUFFERDESC PrimaryBufferDesc = { 0 };
+    PrimaryBufferDesc.dwSize = sizeof(PrimaryBufferDesc);
+    PrimaryBufferDesc.dwFlags = DSBCAPS_PRIMARYBUFFER;
+    LPDIRECTSOUNDBUFFER PrimaryBuffer;
+    if (SUCCEEDED(IDirectSound8_CreateSoundBuffer(DirectSound, &PrimaryBufferDesc, &PrimaryBuffer, NULL)))
+    {
+        IDirectSoundBuffer_SetFormat(PrimaryBuffer, &WaveFormat);
+        IDirectSoundBuffer_Release(PrimaryBuffer);
+    }
+    DSBUFFERDESC SecondaryBufferDesc = { 0 };
+    SecondaryBufferDesc.dwSize = sizeof(SecondaryBufferDesc);
+    SecondaryBufferDesc.dwFlags = DSBCAPS_GETCURRENTPOSITION2;
+    SecondaryBufferDesc.dwBufferBytes = PlayBufferSize;
+    SecondaryBufferDesc.lpwfxFormat = &WaveFormat;
+
+    if (SUCCEEDED(IDirectSound8_CreateSoundBuffer(DirectSound, &SecondaryBufferDesc, &SecondaryBuffer, NULL)))
+    {
+        IDirectSoundBuffer_Play(SecondaryBuffer, 0, 0, DSBPLAY_LOOPING);
     }
 }
 
@@ -447,7 +624,7 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine
             0,
             WindowClass.lpszClassName,
             "Aud",
-            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            WS_OVERLAPPEDWINDOW | WS_VISIBLE | WS_CLIPCHILDREN,
             CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
             0,
             0,
@@ -458,9 +635,11 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine
         {
             OutputDebugStringA("window");
             GlobalRunning = TRUE;
-            CurrentState = INPUT_STATE;
+            currentState = INPUT_STATE;
 
-            InitDirectSound(Window);
+            InitDirectSound(Window, 44100);
+            progressBarPlayedBrush = CreateSolidBrush(RGB(0, 255, 128));
+            progressBarRemainingBrush = CreateSolidBrush(RGB(100, 100, 100));
 
             RECT ClientRect;
             GetClientRect(Window, &ClientRect);
@@ -493,20 +672,15 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine
                 DWORD WriteCursor = 0;
                 if (SecondaryBuffer && SUCCEEDED(IDirectSoundBuffer_GetCurrentPosition(SecondaryBuffer, &PlayCursor, &WriteCursor)))
                 {
-                    DWORD TargetOffset = (PlayCursor + SoundLatencyBytes) % PlayBufferSize;
-                    DWORD BytesToWrite = 0;
-                    if (TargetOffset != NextWriteOffset)
+                    DWORD playToNextWrite = (NextWriteOffset + PlayBufferSize - PlayCursor) % PlayBufferSize;
+                    DWORD playToWriteCursor = (WriteCursor + PlayBufferSize - PlayCursor) % PlayBufferSize;
+                    DWORD targetOffsetFromPlayCursor = playToWriteCursor + SoundLatencyBytes;
+                    if (playToNextWrite < playToWriteCursor)
                     {
-                        if (TargetOffset > NextWriteOffset)
-                        {
-                            BytesToWrite = TargetOffset - NextWriteOffset;
-                        }
-                        else
-                        {
-                            BytesToWrite = (PlayBufferSize - NextWriteOffset) + TargetOffset;
-                        }
+                        NextWriteOffset = WriteCursor;
+                        playToNextWrite = playToWriteCursor;
                     }
-
+                    DWORD BytesToWrite = playToNextWrite < targetOffsetFromPlayCursor ? targetOffsetFromPlayCursor - playToNextWrite : 0;
                     if (BytesToWrite > 0)
                     {
                         void* Ref1;
@@ -516,15 +690,24 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine
 
                         if (SUCCEEDED(IDirectSoundBuffer_Lock(SecondaryBuffer, NextWriteOffset, BytesToWrite, &Ref1, &Size1, &Ref2, &Size2, 0)))
                         {
-                            FillSamples((int16_t*)Ref1, Size1 / sizeof(int16_t));
-                            FillSamples((int16_t*)Ref2, Size2 / sizeof(int16_t));
+                            fillSamples((int16_t*)Ref1, Size1 / sizeof(int16_t), playbackSample);
+                            if (isPlaying) playbackSample += Size1 / sizeof(int16_t);
+                            fillSamples((int16_t*)Ref2, Size2 / sizeof(int16_t), playbackSample);
+                            if (isPlaying) playbackSample += Size2 / sizeof(int16_t);
+                            currentTime = (float)playbackSample / currentSong.sampleRate;
 
                             IDirectSoundBuffer_Unlock(SecondaryBuffer, Ref1, Size1, Ref2, Size2);
                             NextWriteOffset = (NextWriteOffset + BytesToWrite) % PlayBufferSize;
 
-                            if (CurrentState == PLAYING_STATE && isPlaying)
+                            if (currentState == PLAYING_STATE && isPlaying)
                             {
-                                InvalidateRect(Window, NULL, FALSE);
+                                RECT progressBarRect = getProgressBarRect(Window);
+                                int progressBarFillWidth = getProgressBarFillWidth(progressBarRect);
+                                if (progressBarFillWidth != lastProgressBarFillWidth)
+                                {
+                                    lastProgressBarFillWidth = progressBarFillWidth;
+                                    InvalidateRect(Window, &progressBarRect, FALSE);
+                                }
                             }
                         }
                     }
@@ -534,7 +717,7 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine
         }
     }
 
-    FreeNotes();
+    freeNotes();
     if (input) free(input);
 
     return (0);

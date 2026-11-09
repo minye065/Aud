@@ -2,10 +2,6 @@
 #include <math.h>
 #include "app.h"
 
-float* phase;
-float* prevAmp;
-float songSampleRate = 44100.0f;
-
 int noteOrdering(const void* a, const void* b)
 {
 	note* noteA = (note*)a;
@@ -13,54 +9,57 @@ int noteOrdering(const void* a, const void* b)
 	return noteA->startFrame - noteB->startFrame;
 }
 
-float getActiveNotes(float currentTime, int noteCount, note* noteStorage)
+float getActiveNotes(song* currentSong, int16_t* returnSamples, int samplesNeeded, int64_t startSample)
 {
-	float mixedAmplitude = 0.0f;
-	for (int i = 0; i < noteCount; i++)
+	double time;
+	for(int i = 0; i < samplesNeeded; i++)
 	{
-		if (noteStorage[i].startTime > currentTime) break;
-		if (noteStorage[i].endTime < currentTime) continue;
-		if (!noteStorage[i].envelope) continue;
-		float timeUntilNote = currentTime - noteStorage[i].startTime;
-		float hopDuration = 1024.0f / songSampleRate;
-		float position = timeUntilNote / hopDuration;
-		float wholePosition = floor(position);
-		int envelopeIndex = (int)wholePosition;
-		if (envelopeIndex < 0) envelopeIndex = 0;
-		if (envelopeIndex >= noteStorage[i].envelopeLength) envelopeIndex = noteStorage[i].envelopeLength - 1;
-		float wholeNumberValue = noteStorage[i].envelope[envelopeIndex];
-		float decimalNumberValue = 0;
-		if (envelopeIndex + 1 < noteStorage[i].envelopeLength)
+		time = (double)(startSample + i) / currentSong->sampleRate;
+		float summedSampleValue = 0.0f;
+		note currentNote;
+		for(int j = 0; j < currentSong->noteCount; j++)
 		{
-			decimalNumberValue = noteStorage[i].envelope[envelopeIndex + 1];
-		}
-		float decimalPercent = position - wholePosition;
-		float targetAmplitude = decimalNumberValue * decimalPercent + wholeNumberValue * (1 - decimalPercent);
-		float smoothedAmplitude = prevAmp[i];
-		if (smoothedAmplitude < 0.0001f && targetAmplitude <= 0.0f)
-		{
-			smoothedAmplitude = 0.0f;
-			prevAmp[i] = 0.0f;
-			phase[i] += 2 * PI * noteStorage[i].fundamental / 44100.0f;
-			if (phase[i] >= 2 * PI)
+			currentNote = currentSong->notes[j];
+			item currentNoteItem = currentSong->items[currentNote.itemIdentifier];
+			double startTime = (double)currentNote.startFrame * currentSong->hop / currentSong->sampleRate;
+			double endTime = (double)currentNote.endFrame * currentSong->hop / currentSong->sampleRate;
+			if(time < startTime || time >= endTime + currentNoteItem.release) continue;
+			float currentNoteFrequency = currentNoteItem.startingPitch * (float)pow(2.0, currentNote.tone / 1200.0);
+
+			double noteElapsedTime = time - startTime;
+			double noteHeldDuration = endTime - startTime;
+			double envelopeTime = noteElapsedTime < noteHeldDuration ? noteElapsedTime : noteHeldDuration;
+			float noteVolume;
+			if(envelopeTime < currentNoteItem.attack)
 			{
-				phase[i] -= 2 * PI;
+				noteVolume = (float)(envelopeTime / currentNoteItem.attack);
 			}
-			continue;
+			else if(envelopeTime < currentNoteItem.attack + currentNoteItem.decay)
+			{
+				double decayElapsedTime = envelopeTime - currentNoteItem.attack;
+				noteVolume = 1.0f - (1.0f - currentNoteItem.sustain) * (float)(decayElapsedTime / currentNoteItem.decay);
+			}
+			else
+			{
+				noteVolume = currentNoteItem.sustain;
+			}
+			if(noteElapsedTime > noteHeldDuration)
+			{
+				double releaseElapsedTime = noteElapsedTime - noteHeldDuration;
+				noteVolume *= 1.0f - (float)(releaseElapsedTime / currentNoteItem.release);
+			}
+
+			noteVolume *= currentNote.gain;
+			for(int h = 0; h < currentNoteItem.harmonicsCount; h++)
+			{
+				double harmonicPhase = 2 * PI * currentNoteFrequency * (h + 1) * (time - startTime);
+				summedSampleValue += noteVolume * currentNoteItem.harmonics[h] * (float)sin(harmonicPhase);
+			}
 		}
-		float rampRate = targetAmplitude > smoothedAmplitude ? 0.03f : 0.008f;
-		smoothedAmplitude += (targetAmplitude - smoothedAmplitude) * rampRate;
-		if (targetAmplitude <= 0.0f && smoothedAmplitude < 0.0001f)
-		{
-			smoothedAmplitude = 0.0f;
-		}
-		prevAmp[i] = smoothedAmplitude;
-		mixedAmplitude += sin(phase[i]) * smoothedAmplitude;
-		phase[i] += 2 * PI * noteStorage[i].fundamental / 44100.0f;
-		if (phase[i] >= 2 * PI)
-		{
-			phase[i] -= 2 * PI;
-		}
+		if(summedSampleValue > 1.0f) summedSampleValue = 1.0f;
+		if(summedSampleValue < -1.0f) summedSampleValue = -1.0f;
+		int16_t scaledTotal = (int16_t)(summedSampleValue * 32767);
+		returnSamples[i] = scaledTotal;
 	}
-	return(mixedAmplitude);
+	return 0.0f;
 }
