@@ -73,15 +73,15 @@ static int hzToBin(float hz, unsigned int frameSize, unsigned int sampleRate, un
 	return bin;
 }
 
-static int pickPeaks(float* magnitudeStorage, int binCount, unsigned int sampleRate, unsigned int frameSize, float *peakStorage)
+static int pickPeaks(float* magnitudeStorage, int binCount, unsigned int sampleRate, unsigned int frameSize, float *peakHzAndMagnitudeOutput)
 {
 	float targetMagnitude = 0;
 	float highestMagnitude = 0;
-	float binWithHighestMagnitude;
+	int binWithHighestMagnitude = 0;
 	int peakCount = 0;
-	int peakBins[8] = 0;
-	float peakMagnitude[8] = 0;
-	for(int i = 0; i < bitCount; i++)
+	int peakBins[8];
+	float peakMagnitude[8];
+	for(int i = 0; i < binCount; i++)
 	{
 		targetMagnitude = magnitudeStorage[i];
 
@@ -92,27 +92,28 @@ static int pickPeaks(float* magnitudeStorage, int binCount, unsigned int sampleR
 		}
 	}
 	float magnitudeFloor = highestMagnitude * 0.01;
-	for(int i = 1; i < bitCount - 1; i++)
+	for(int i = 1; i < binCount - 1; i++)
 	{
 		if(magnitudeStorage[i] <= magnitudeFloor) continue;
 		if(magnitudeStorage[i] > magnitudeStorage[i + 1] && magnitudeStorage[i] > magnitudeStorage[i - 1])
+		{
+			
+			peakBins[peakCount] = i;
+			peakMagnitude[peakCount] = magnitudeStorage[i];
+			peakCount++;
+		}
+		else
 		{
 			if(peakCount < 8)
 			{
 				for(int k = 0; k < 8; k++)
 				{
-					if(peakMagnitude[i] > peakMagnitude[k])
+					if(magnitudeStorage[i] > peakMagnitude[k])
 					{
-						peakBins[peakCount] = i
-						peakMagnitude[peakCount] = magnitude[i];
+						peakBins[peakCount] = i;
+						peakMagnitude[peakCount] = magnitudeStorage[i];
 					}
 				}
-			}
-			else
-			{
-				peakBins[peakCount] = i
-				peakMagnitude[peakCount] = magnitude[i];
-				peakCount++;
 			}
 		}
 	}
@@ -128,8 +129,8 @@ static int pickPeaks(float* magnitudeStorage, int binCount, unsigned int sampleR
 		float binShift = parabolaDenominator != 0.0f ? 0.5f * (leftMag - rightMag) / parabolaDenominator : 0.0f;
 		if (binShift > 1.0f) binShift = 1.0f;
 		if (binShift < -1.0f) binShift = -1.0f;
-		peakStorage[i * 2] = ((float)bin + binShift) * sampleRate / frameSize;
-		peakStorage[i * 2 + 1] = peakMagnitude[i];
+		peakHzAndMagnitudeOutput[i * 2] = ((float)bin + binShift) * sampleRate / frameSize;
+		peakHzAndMagnitudeOutput[i * 2 + 1] = peakMagnitude[i];
 	}
 	return(peakCount);
 }
@@ -172,7 +173,7 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 					frameBuffer[i] = PCMPosition < totalSize ? passedInPCM[PCMPosition] * hannTable[i] : 0.0f;
 				}
 				kiss_fftr(cfg, frameBuffer, spectrum);
-				pickPeaks();
+				pickPeaks(magnitudeStorage + k*binSize, binSize, sampleRate, frameSize, OUTPUTPLACEHOLDER);
 			}
 
 			for (int k = 1; k < amountOfFrames - 1; k++)
