@@ -60,22 +60,26 @@
         const uploadBtn = document.getElementById('uploadBtn');
         const status = document.getElementById('status');
 
-        async function handleFile(file) {
+        async function handleFile(file)
+        {
         const dot = file.name.lastIndexOf('.');
         const ext = dot >= 0 ? file.name.slice(dot).toLowerCase() : '';
-        if (ext !== '.mp3' && ext !== '.wav' && ext !== '.mp4') {
+        if (ext !== '.mp3' && ext !== '.wav' && ext !== '.mp4')
+        {
         status.textContent = `Unsupported: ${file.name} - only mp3, wav, mp4`;
         return;
         }
         status.textContent = `Processing: ${file.name}`;
-        try {
+        try
+        {
         const arrayBuffer = await file.arrayBuffer();
         const audioContext = new AudioContext({ sampleRate: 44100 });
         const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
         const result = await encodeAudio(audioBuffer);
 
-        const blob = new Blob([JSON.stringify(result)], { type: 'text/plain' });
+        const songName = file.name.replace(/\.[^.]+$/, '').replace(/\s+/g, '_');
+        const blob = new Blob([writeFile(result, songName)], { type: 'text/plain' });        
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
@@ -84,24 +88,30 @@
         URL.revokeObjectURL(url);
 
         status.textContent = `Done: ${file.name}`;
-        } catch (err) {
+        }
+        catch (err)
+        {
         status.textContent = `Failed: ${err.message || err}`;
         }
         }
 
         uploadBtn.addEventListener('click', () => fileInput.click());
-        fileInput.addEventListener('change', () => {
+        fileInput.addEventListener('change', () =>
+        {
         if (fileInput.files[0]) handleFile(fileInput.files[0]);
         });
 
-        document.addEventListener('dragover', e => {
+        document.addEventListener('dragover', e =>
+        {
         e.preventDefault();
         document.body.classList.add('dragover');
         });
-        document.addEventListener('dragleave', () => {
+        document.addEventListener('dragleave', () =>
+        {
         document.body.classList.remove('dragover');
         });
-        document.addEventListener('drop', e => {
+        document.addEventListener('drop', e =>
+        {
         e.preventDefault();
         document.body.classList.remove('dragover');
         if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);

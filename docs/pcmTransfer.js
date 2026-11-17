@@ -1,7 +1,9 @@
-const runtimeReady = new Promise((resolve) => {
+const runtimeReady = new Promise((resolve) =>
+{
   Module.onRuntimeInitialized = resolve;
 });
-async function encodeAudio(audioBuffer) {
+async function encodeAudio(audioBuffer)
+{
   await runtimeReady;
 
   const channelCount = audioBuffer.numberOfChannels;
@@ -20,7 +22,8 @@ async function encodeAudio(audioBuffer) {
   Module.HEAPF32.set(samples, pcmPtr >> 2);
   const encode = Module.cwrap('encode', 'number', ['number', 'number', 'number']);
   const notesPtr = encode(pcmPtr, sampleCount, sampleRate);
-  if (!notesPtr) {
+  if (!notesPtr)
+  {
     Module._free(pcmPtr);
     return { noteCount: 0, sampleRate, notes: [] };
   }
@@ -30,7 +33,8 @@ async function encodeAudio(audioBuffer) {
   Module._free(pcmPtr);
 
   const notes = [];
-  for (let i = 0; i < count; i++) {
+  for (let i = 0; i < count; i++)
+  {
     const o = (notesPtr >> 2) + i * 6;
     const fundamental = Module.HEAPF32[o + 0];
     const startFrame = Module.HEAP32[o + 1];
@@ -39,7 +43,8 @@ async function encodeAudio(audioBuffer) {
     const envelopeLen = Module.HEAP32[o + 4];
 
     const envelope = new Float32Array(envelopeLen);
-    for (let j = 0; j < envelopeLen; j++) {
+    for (let j = 0; j < envelopeLen; j++)
+    {
       envelope[j] = Module.HEAPF32[(noteEnvPtr >> 2) + j];
     }
     notes.push({ fundamental, startFrame, endFrame, envelope, envelopeLength: envelopeLen });
@@ -49,17 +54,42 @@ async function encodeAudio(audioBuffer) {
   cleanupEnvelopes();
   const usable = notes.filter(n => n.fundamental > 0);
   let loudest = 0;
-  for (const n of usable) {
-    for (let j = 0; j < n.envelope.length; j++) {
+  for (const n of usable)
+  {
+    for (let j = 0; j < n.envelope.length; j++)
+    {
       if (n.envelope[j] > loudest) loudest = n.envelope[j];
     }
   }
-  if (loudest > 0) {
-    for (const n of usable) {
-      for (let j = 0; j < n.envelope.length; j++) {
+  if (loudest > 0)
+  {
+    for (const n of usable)
+    {
+      for (let j = 0; j < n.envelope.length; j++)
+      {
         n.envelope[j] /= loudest;
       }
     }
   }
   return { noteCount: usable.length, sampleRate, notes: usable };
+}
+
+function writeFile(result, songName)
+{
+    const itemBaseHz = 261.63;
+    const outputFileLines = [];
+    outputFileLines.push(`AUD ${songname} ${result.sampleRate} 1024`);
+    outputFileLines.push(`item item0 ${itemBaseHz} 1 adsr:.01,.2,.6,.3`);
+    for (const currentNote of result.notes)
+    {
+        let noteEnvelopePeak = 0;
+        for (let j = 0; j < currentNote.envelope.length; j++)
+        {
+            if (currentNote.envelope[j] > noteEnvelopePeak) noteEnvelopePeak = currentNote.envelope[j];
+        }
+        if (noteEnvelopePeak <= 0) continue;
+        const tone = Math.round(1200 * Math.log2(currentNote.fundamental / itemBaseHz));
+        outputFileLines.push(`use item0 tone:${tone} frame:${currentNote.startFrame}-${currentNote.endFrame + 1} gain:${noteEnvelopePeak.toFixed(3)}`);
+    }
+    return outputFileLines.join('\n') + '\n';
 }

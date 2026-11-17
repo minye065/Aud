@@ -3,8 +3,46 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <math.h>
+#include <stdbool.h>
 #include "hannTable.c"
 #include "kissfft/kiss_fftr.h"
+
+typedef struct item
+{
+	char name[32];
+	float harmonics[16];
+	bool isTonal;
+	float startingPitch;
+	int harmonicsCount;
+	float lowestFrequency;
+	float highestFrequency;
+	float attack;
+	float sustain;
+	float release;
+	float decay;
+}item;
+
+typedef struct note
+{
+	int itemIdentifier;
+	float tone;
+	int startFrame;
+	int endFrame;
+	float gain;
+}note;
+
+typedef struct song
+{
+	char name[32];
+	int sampleRate;
+	int hop;
+	int itemCount;
+	item items[32];
+	int noteCount;
+	int noteCapacity;
+	note* notes;
+}song;
+
 
 typedef struct peakStorage
 {
@@ -33,6 +71,67 @@ static int hzToBin(float hz, unsigned int frameSize, unsigned int sampleRate, un
 	if (bin < 0) bin = 0;
 	if (bin > (int)binSize - 1) bin = (int)binSize - 1;
 	return bin;
+}
+
+static int pickPeaks(float* magnitudeStorage, int binCount, unsigned int sampleRate, unsigned int frameSize, float *peakStorage)
+{
+	float targetMagnitude = 0;
+	float highestMagnitude = 0;
+	float binWithHighestMagnitude;
+	int peakCount = 0;
+	int peakBins[8] = 0;
+	float peakMagnitude[8] = 0;
+	for(int i = 0; i < bitCount; i++)
+	{
+		targetMagnitude = magnitudeStorage[i];
+
+		if(targetMagnitude > highestMagnitude)
+		{
+			highestMagnitude = targetMagnitude;
+			binWithHighestMagnitude = i;
+		}
+	}
+	float magnitudeFloor = highestMagnitude * 0.01;
+	for(int i = 1; i < bitCount - 1; i++)
+	{
+		if(magnitudeStorage[i] <= magnitudeFloor) continue;
+		if(magnitudeStorage[i] > magnitudeStorage[i + 1] && magnitudeStorage[i] > magnitudeStorage[i - 1])
+		{
+			if(peakCount < 8)
+			{
+				for(int k = 0; k < 8; k++)
+				{
+					if(peakMagnitude[i] > peakMagnitude[k])
+					{
+						peakBins[peakCount] = i
+						peakMagnitude[peakCount] = magnitude[i];
+					}
+				}
+			}
+			else
+			{
+				peakBins[peakCount] = i
+				peakMagnitude[peakCount] = magnitude[i];
+				peakCount++;
+			}
+		}
+	}
+
+	for(int i = 0; i < peakCount; i++)
+	{
+		int bin = peakBins[i];
+
+		float leftMag = bin > 0 ? magnitudeStorage[peakMagnitude[i]] : 0.0f;
+		float rightMag = bin < (int)binCount - 1 ? magnitudeStorage[peakMagnitude[i]] : 0.0f;
+		float centerMag = magnitudeStorage[peakMagnitude[i]];
+		float parabolaDenominator = leftMag - 2 * centerMag + rightMag;
+		float binShift = parabolaDenominator != 0.0f ? 0.5f * (leftMag - rightMag) / parabolaDenominator : 0.0f;
+		if (binShift > 1.0f) binShift = 1.0f;
+		if (binShift < -1.0f) binShift = -1.0f;
+		peakStorage[i * 2] = ((float)bin + binShift) * sampleRate / frameSize;
+		peakStorage[i * 2 + 1] = peakMagnitude[i];
+	}
+	return(peakCount);
 }
 
 noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampleRate)
@@ -73,29 +172,7 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 					frameBuffer[i] = PCMPosition < totalSize ? passedInPCM[PCMPosition] * hannTable[i] : 0.0f;
 				}
 				kiss_fftr(cfg, frameBuffer, spectrum);
-
-				int bin = 0;
-				float highestMagnitude = 0;
-
-				for (int b = 0; b < binSize; b++)
-				{
-					magnitudeStorage[k * binSize + b] = sqrtf(spectrum[b].r * spectrum[b].r + spectrum[b].i * spectrum[b].i);
-					float binMagnitude = magnitudeStorage[k * binSize + b];
-					if (binMagnitude > highestMagnitude)
-					{
-						highestMagnitude = binMagnitude;
-						bin = b;
-					}
-				}
-
-				float leftMag = bin > 0 ? magnitudeStorage[k * binSize + bin - 1] : 0.0f;
-				float rightMag = bin < (int)binSize - 1 ? magnitudeStorage[k * binSize + bin + 1] : 0.0f;
-				float centerMag = magnitudeStorage[k * binSize + bin];
-				float parabolaDenominator = leftMag - 2 * centerMag + rightMag;
-				float binShift = parabolaDenominator != 0.0f ? 0.5f * (leftMag - rightMag) / parabolaDenominator : 0.0f;
-				if (binShift > 1.0f) binShift = 1.0f;
-				if (binShift < -1.0f) binShift = -1.0f;
-				peakHzStorage[k] = ((float)bin + binShift) * sampleRate / frameSize;
+				pickPeaks();
 			}
 
 			for (int k = 1; k < amountOfFrames - 1; k++)
