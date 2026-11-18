@@ -97,23 +97,27 @@ static int pickPeaks(float* magnitudeStorage, int binCount, unsigned int sampleR
 		if(magnitudeStorage[i] <= magnitudeFloor) continue;
 		if(magnitudeStorage[i] > magnitudeStorage[i + 1] && magnitudeStorage[i] > magnitudeStorage[i - 1])
 		{
-			
-			peakBins[peakCount] = i;
-			peakMagnitude[peakCount] = magnitudeStorage[i];
-			peakCount++;
-		}
-		else
-		{
 			if(peakCount < 8)
 			{
-				for(int k = 0; k < 8; k++)
-				{
-					if(magnitudeStorage[i] > peakMagnitude[k])
+				peakBins[peakCount] = i;
+				peakMagnitude[peakCount] = magnitudeStorage[i];
+				peakCount++;
+			}
+			else
+			{
+					int indexOfSmallestPeak = 0;
+					for(int k = 1; k < 8; k++)
 					{
-						peakBins[peakCount] = i;
-						peakMagnitude[peakCount] = magnitudeStorage[i];
+							if(peakMagnitude[k] < peakMagnitude[indexOfSmallestPeak])
+							{
+									indexOfSmallestPeak = k;
+							}
 					}
-				}
+					if(magnitudeStorage[i] > peakMagnitude[indexOfSmallestPeak])
+					{
+							peakBins[indexOfSmallestPeak] = i;
+							peakMagnitude[indexOfSmallestPeak] = magnitudeStorage[i];
+					}
 			}
 		}
 	}
@@ -122,9 +126,9 @@ static int pickPeaks(float* magnitudeStorage, int binCount, unsigned int sampleR
 	{
 		int bin = peakBins[i];
 
-		float leftMag = bin > 0 ? magnitudeStorage[peakMagnitude[i]] : 0.0f;
-		float rightMag = bin < (int)binCount - 1 ? magnitudeStorage[peakMagnitude[i]] : 0.0f;
-		float centerMag = magnitudeStorage[peakMagnitude[i]];
+		float leftMag = bin > 0 ? magnitudeStorage[bin - 1] : 0.0f;
+		float rightMag = bin < (int)binCount - 1 ? magnitudeStorage[bin] : 0.0f;
+		float centerMag = magnitudeStorage[bin + 1];
 		float parabolaDenominator = leftMag - 2 * centerMag + rightMag;
 		float binShift = parabolaDenominator != 0.0f ? 0.5f * (leftMag - rightMag) / parabolaDenominator : 0.0f;
 		if (binShift > 1.0f) binShift = 1.0f;
