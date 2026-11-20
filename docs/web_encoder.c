@@ -135,8 +135,8 @@ static int pickPeaks(float* magnitudeStorage, int binCount, unsigned int sampleR
 		float centerMag = logf(magnitudeStorage[bin] + 0.000001f);
 		float parabolaDenominator = leftMag - 2 * centerMag + rightMag;
 		float binShift = parabolaDenominator != 0.0f ? 0.5f * (leftMag - rightMag) / parabolaDenominator : 0.0f;
-		if (binShift > 1.0f) binShift = 0.5f;
-		if (binShift < -1.0f) binShift = -0.5f;
+		if (binShift > 0.5f) binShift = 0.5f;
+		if (binShift < -0.5f) binShift = -0.5f;
 		peakHzAndMagnitudeOutput[i * 2] = ((float)bin + binShift) * sampleRate / frameSize;
 		peakHzAndMagnitudeOutput[i * 2 + 1] = peakMagnitude[i];
 	}
