@@ -51,9 +51,32 @@ void freeNotes(void)
 
 void InitDirectSound(HWND Window, int sampleRate);
 
+static void drawLoadingPercent(HWND Window, int percent)
+{
+    RECT clientRect;
+    GetClientRect(Window, &clientRect);
+    HDC deviceContext = GetDC(Window);
+    FillRect(deviceContext, &clientRect, (HBRUSH)GetStockObject(WHITE_BRUSH));
+    HFONT percentFont = CreateFontA(64, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH, "Segoe UI");
+    HFONT previousFont = (HFONT)SelectObject(deviceContext, percentFont);
+    SetBkMode(deviceContext, TRANSPARENT);
+    SetTextColor(deviceContext, RGB(0, 0, 0));
+    char percentText[8];
+    snprintf(percentText, sizeof(percentText), "%d%%", percent);
+    DrawTextA(deviceContext, percentText, -1, &clientRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    SelectObject(deviceContext, previousFont);
+    DeleteObject(percentFont);
+    ReleaseDC(Window, deviceContext);
+}
+
 void loadNotes(HWND Window, char* text)
 {
     freeNotes();
+    ShowWindow(OpenButton, SW_HIDE);
+    UpdateWindow(Window);
+    size_t textLength = strlen(text);
+    int lastDrawnPercent = 0;
+    drawLoadingPercent(Window, 0);
     char* itemName;
     item newItem;
     int lineNumber = 0;
@@ -72,6 +95,12 @@ void loadNotes(HWND Window, char* text)
         *lineEnd = 0;
         char* line = lineStart;
         lineStart = nextLine;
+        int percent = (int)((long long)(lineStart - text) * 100 / (long long)textLength);
+        if (percent != lastDrawnPercent)
+        {
+            lastDrawnPercent = percent;
+            drawLoadingPercent(Window, percent);
+        }
         lineNumber++;
         char* hash = strchr(line, '#');
         if (hash) *hash = 0;
@@ -391,11 +420,16 @@ void loadNotes(HWND Window, char* text)
     ShowWindow(RestartButton, SW_SHOW);
     ShowWindow(BackButton, SW_SHOW);
     ShowWindow(OpenButton, SW_HIDE);
+    InvalidateRect(Window, NULL, TRUE);
+    UpdateWindow(Window);
     if (warningLength > 0) MessageBoxA(Window, warnings, "Warning", MB_OK | MB_ICONWARNING);
     return;
 
     fail:
     freeNotes();
+    ShowWindow(OpenButton, SW_SHOW);
+    InvalidateRect(Window, NULL, TRUE);
+    UpdateWindow(Window);
     snprintf(message, sizeof(message), "Line %d: %s", lineNumber, errorText);
     MessageBoxA(Window, message, "Error", MB_OK | MB_ICONERROR);
 }
@@ -432,6 +466,21 @@ static int getProgressBarFillWidth(RECT progressBarRect)
     return (int)((progressBarRect.right - progressBarRect.left) * playedRatio);
 }
 
+static void silenceSoundBuffer(void)
+{
+    if (!SecondaryBuffer) return;
+    void* region1;
+    DWORD region1Size;
+    void* region2;
+    DWORD region2Size;
+    if (SUCCEEDED(IDirectSoundBuffer_Lock(SecondaryBuffer, 0, PlayBufferSize, &region1, &region1Size, &region2, &region2Size, 0)))
+    {
+        memset(region1, 0, region1Size);
+        if (region2) memset(region2, 0, region2Size);
+        IDirectSoundBuffer_Unlock(SecondaryBuffer, region1, region1Size, region2, region2Size);
+    }
+}
+
 LRESULT CALLBACK
 Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 {
@@ -465,17 +514,19 @@ Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
         {
         case OPEN_BUTTON:
         {
-            OPENFILENAMEA OpenFileName = { 0 };
-            char FilePath[MAX_PATH] = { 0 };
-            OpenFileName.lStructSize = sizeof(OPENFILENAMEA);
+            silenceSoundBuffer();
+            OPENFILENAMEW OpenFileName = { 0 };
+            wchar_t FilePath[MAX_PATH] = { 0 };
+            OpenFileName.lStructSize = sizeof(OPENFILENAMEW);
             OpenFileName.hwndOwner = Window;
-            OpenFileName.lpstrFilter = "Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0";
+            OpenFileName.lpstrFilter = L"Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0";
             OpenFileName.lpstrFile = FilePath;
             OpenFileName.nMaxFile = MAX_PATH;
             OpenFileName.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
-            if (GetOpenFileNameA(&OpenFileName))
+            if (GetOpenFileNameW(&OpenFileName))
             {
-                FILE* file = fopen(FilePath, "rb");
+                FILE* file = _wfopen(FilePath, L"rb");
+                if (!file) MessageBoxA(Window, "Could not open that file", "Error", MB_OK | MB_ICONERROR);
                 if (file)
                 {
                     fseek(file, 0, SEEK_END);

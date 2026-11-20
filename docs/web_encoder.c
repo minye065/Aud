@@ -93,8 +93,10 @@ static int pickPeaks(float* magnitudeStorage, int binCount, unsigned int sampleR
 			binWithHighestMagnitude = i;
 		}
 	}
-	float magnitudeFloor = highestMagnitude * 0.01;
-	for(int i = 1; i < binCount - 1; i++)
+	int firstBin = hzToBin(80.0f, frameSize, sampleRate, binCount);
+	int lastBin = hzToBin(5000.0f, frameSize, sampleRate, binCount);
+	float magnitudeFloor = highestMagnitude * 0.05;
+	for (int i = (firstBin < 1 ? 1 : firstBin); i < lastBin && i < binCount - 1; i++) 
 	{
 		if(magnitudeStorage[i] <= magnitudeFloor) continue;
 		if(magnitudeStorage[i] > magnitudeStorage[i + 1] && magnitudeStorage[i] > magnitudeStorage[i - 1])
@@ -258,6 +260,7 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 				int groupEndFrame;
 				int totalEnvelopeLength = 0;
 				int groupCounter = 0;
+				int minimumTrackLength = 5;
 				int* groupOfTrack = malloc(trackCount * sizeof(int));
 				int* groupFirstTrack = malloc(trackCount * sizeof(int));
 				int* groupEnvelopeOffsets = malloc(trackCount * sizeof(int));
@@ -272,13 +275,14 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 					}
 					for (int t = 0; t < trackCount; t++)
 					{
-						if (groupOfTrack[t] != -1) continue;
+						if (groupOfTrack[t] != -1 || trackStorage[t].length < minimumTrackLength) continue;
 						groupOfTrack[t] = groupCounter;
 						groupFirstTrack[groupCounter] = t;
 						for (int u = t + 1; u < trackCount; u++)
 						{
 							if (trackStorage[u].startFrame > trackStorage[t].startFrame + 1) break;
-							if (groupOfTrack[u] != -1) continue;
+							if (groupOfTrack[u] != -1 || trackStorage[u].length < minimumTrackLength) continue;
+
 							float harmonicRatio = trackStorage[u].peakHz / trackStorage[t].peakHz;
 							for (int m = 2; m < 9; m++)
 							{
@@ -299,6 +303,7 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 					for (int t = 0; t < trackCount; t++)
 					{
 						int g = groupOfTrack[t];
+						if (g == -1) continue;
 						if (trackStorage[t].startFrame < groupStartFrames[g])
 						{
 								groupStartFrames[g] = trackStorage[t].startFrame;
@@ -321,6 +326,7 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 						for(int t = 0; t < trackCount; t++)
 						{
 							int g = groupOfTrack[t];
+							if (g == -1) continue;
 							int bin = hzToBin(trackStorage[t].peakHz, frameSize, sampleRate, binSize);
 							for (int s = trackStorage[t].startFrame; s <= trackStorage[t].endFrame; s++)
 							{

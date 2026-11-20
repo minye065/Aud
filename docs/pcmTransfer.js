@@ -79,7 +79,7 @@ function writeFile(result, songName)
     const itemBaseHz = 261.63;
     const outputFileLines = [];
     outputFileLines.push(`AUD ${songName} ${result.sampleRate} 1024`);
-    outputFileLines.push(`item item0 ${itemBaseHz} 1 adsr:.01,.2,.6,.3`);
+    outputFileLines.push(`item item0 ${itemBaseHz} 1 adsr:.01,.05,1,.05`);
     for (const currentNote of result.notes)
     {
         let noteEnvelopePeak = 0;
