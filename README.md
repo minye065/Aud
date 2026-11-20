@@ -10,14 +10,12 @@ The goal is to create a audio player system that has easily shareable files with
 This first version is meant for me to understand the basics of audio and how this would work. 
 V2 will focus on how to get this to have small shareable files/text that can still play sound with loss.
 __ __
-Pre reqs: git, github acc w/ pages access
+Pre reqs: git, github acc w/ pages access, vs installed
 FOR WINDOWS:
 If you don't have git:
 ```
 winget install --id Git.Git -e --source winget
 ```
-FOR OTHER OS:
-please check https://git-scm.com/install/mac
 
 cd into your development folder if you have one
 
@@ -63,6 +61,26 @@ Then the app
 .\build.bat
 ```
 
+For the app
+-YOU MUST BE IN VISUAL STUDIO AND HAVE THE DESKTOP INTEGRATION WITH C++
+-this starts at project root btw
+
+```
+cd src
+```
+go into source 
+```
+.\build.bat
+```
+build it
+
+*this works most of the time
+*windows might block bat
+*you might have to type it a different way to get it to run
+*probably going to get blocked by windows defender
+
+
+
 Tech stack
 Uses kissfft which is a "A mixed-radix Fast Fourier Transform"
 Uses window app sdk for the app part.
@@ -79,4 +97,5 @@ How audio works, deleted bc people think it looks ai (i wrote it myself)
 Demo?
 no embed bc too big :(
 (https://cdn.hackclub.com/01a0b68c-0eab-7822-83f3-ffde89f4b027/screen_recording_2026-09-18_150056.mp4
-ignore C:\dev\.include\emsdk\emsdk_env.ps1
+ignore
+C:\dev\.include\emsdk\emsdk_env.ps1
