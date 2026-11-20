@@ -5,6 +5,7 @@
 #include <commdlg.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <math.h>
 
 #define OPEN_BUTTON 13
 #define PLAY_BUTTON 41
@@ -193,6 +194,18 @@ void loadNotes(HWND Window, char* text)
                 }
                 harmonicsCursor = harmonicEnd + 1;
             }
+            float harmonicsTotal = 0;
+            for(int i = 0; i < harmonicsCount - 1; i++)
+            {
+                harmonicsTotal += newItem.harmonics[i];
+                if(harmonicsTotal <= 0) 
+                {
+                    errorText = "harmonics must add up to be greater then 0";
+                    goto fail;
+                }
+                newItem.harmonics[i] = newItem.harmonics[i] / harmonicsTotal;
+            }
+
             newItem.harmonicsCount = harmonicsCount;
 
             char* option;

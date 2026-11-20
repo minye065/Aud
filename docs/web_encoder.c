@@ -50,6 +50,8 @@ typedef struct peakStorage
 	float peakHz;
 	int startFrame;
 	int endFrame;
+	float lastHz;
+	float totalHz;
 }peakStorage;
 
 typedef struct noteEvent
@@ -127,8 +129,8 @@ static int pickPeaks(float* magnitudeStorage, int binCount, unsigned int sampleR
 		int bin = peakBins[i];
 
 		float leftMag = bin > 0 ? magnitudeStorage[bin - 1] : 0.0f;
-		float rightMag = bin < (int)binCount - 1 ? magnitudeStorage[bin] : 0.0f;
-		float centerMag = magnitudeStorage[bin + 1];
+		float rightMag = bin < (int)binCount - 1 ? magnitudeStorage[bin+ 1] : 0.0f;
+		float centerMag = magnitudeStorage[bin];
 		float parabolaDenominator = leftMag - 2 * centerMag + rightMag;
 		float binShift = parabolaDenominator != 0.0f ? 0.5f * (leftMag - rightMag) / parabolaDenominator : 0.0f;
 		if (binShift > 1.0f) binShift = 1.0f;
@@ -137,6 +139,67 @@ static int pickPeaks(float* magnitudeStorage, int binCount, unsigned int sampleR
 		peakHzAndMagnitudeOutput[i * 2 + 1] = peakMagnitude[i];
 	}
 	return(peakCount);
+}
+
+int linkTracks(float* peakHzAndMagnitudeStorage, int* peakCounts, int amountOfFrames, peakStorage* trackStorage)
+{
+	int activeTrackIndexes[64];
+	int activeTrackCount = 0;
+	int trackCount = 0;
+	for (int k = 0; k < amountOfFrames; k++)
+	{
+		int keptTracksCount = 0;
+		for (int i = 0; i < activeTrackCount; i++)
+		{
+			if (k - trackStorage[activeTrackIndexes[i]].endFrame <= 3)
+			{
+				activeTrackIndexes[keptTracksCount] = activeTrackIndexes[i];
+				keptTracksCount++;
+			}
+		}
+		activeTrackCount = keptTracksCount;
+
+		for (int p = 0; p < peakCounts[k]; p++)
+		{
+			float peakHz = peakHzAndMagnitudeStorage[k * 16 + p * 2];
+			int bestTrackIndex = -1;
+			float bestCentsDistance = 50.0f;
+			for (int i = 0; i < activeTrackCount; i++)
+			{
+				int candidateTrackIndex = activeTrackIndexes[i];
+				if (trackStorage[candidateTrackIndex].endFrame == k) continue;
+				float centsDistance = fabsf(1200 * log2f(peakHz / trackStorage[candidateTrackIndex].lastHz));
+				if (centsDistance < bestCentsDistance)
+				{
+					bestCentsDistance = centsDistance;
+					bestTrackIndex = candidateTrackIndex;
+				}
+			}
+			if (bestTrackIndex >= 0)
+			{
+				trackStorage[bestTrackIndex].endFrame = k;
+				trackStorage[bestTrackIndex].lastHz = peakHz;
+				trackStorage[bestTrackIndex].totalHz += peakHz;
+				trackStorage[bestTrackIndex].length += 1;
+			}
+			else
+			{
+				trackStorage[trackCount].startFrame = k;
+				trackStorage[trackCount].endFrame = k;
+				trackStorage[trackCount].length = 1;
+				trackStorage[trackCount].lastHz = peakHz;
+				trackStorage[trackCount].totalHz = peakHz;
+				activeTrackIndexes[activeTrackCount] = trackCount;
+				activeTrackCount++;
+				trackCount++;
+			}
+		}
+	}
+	for (int t = 0; t < trackCount; t++)
+	{
+		trackStorage[t].peakHz = trackStorage[t].totalHz / trackStorage[t].length;
+	}
+	return trackCount;
 }
 
 noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampleRate)
@@ -156,18 +219,17 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 	{
 		amountOfFrames = 1;
 	}
-#ifdef HDEBUG
-	printf("totalSize=%u sampleRate=%u amountOfFrames=%u\n", totalSize, sampleRate, amountOfFrames);
-#endif
 	float* frameBuffer = malloc(frameSize * sizeof(float));
 
-	if (frameBuffer)
+	if(frameBuffer && cfg)
 	{
 		kiss_fft_cpx spectrum[binSize];
 		float* magnitudeStorage = malloc(amountOfFrames * binSize * sizeof(float));
-		float* peakHzStorage = malloc(amountOfFrames * sizeof(float));
+		float* peakHzAndMagnitudeStorage = malloc(amountOfFrames * 16 * sizeof(float));
+		int* peakCounts = malloc(amountOfFrames * sizeof(int));
+		
 
-		if (magnitudeStorage && peakHzStorage)
+		if (magnitudeStorage && peakHzAndMagnitudeStorage && peakCounts)
 		{
 			for (int k = 0; k < amountOfFrames; k++)
 			{
@@ -177,306 +239,132 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 					frameBuffer[i] = PCMPosition < totalSize ? passedInPCM[PCMPosition] * hannTable[i] : 0.0f;
 				}
 				kiss_fftr(cfg, frameBuffer, spectrum);
-				pickPeaks(magnitudeStorage + k*binSize, binSize, sampleRate, frameSize, OUTPUTPLACEHOLDER);
-			}
-
-			for (int k = 1; k < amountOfFrames - 1; k++)
-			{
-				float a = peakHzStorage[k - 1];
-				float b = peakHzStorage[k];
-				float c = peakHzStorage[k + 1];
-				float median = a;
-				if ((b >= a && b <= c) || (b <= a && b >= c)) median = b;
-				else if ((c >= a && c <= b) || (c <= a && c >= b)) median = c;
-				peakHzStorage[k] = median;
-			}
-
-			float tolerance = (float)sampleRate / frameSize * 1.5f;
-			float upperbound = peakHzStorage[0] + tolerance;
-			float lowerbound = peakHzStorage[0] - tolerance;
-			int frameCounter = 1;
-			float runHzTotal = peakHzStorage[0];
-			int partialTrackCounter = 0;
-			peakStorage thisIterationPeak;
-			peakStorage* partialTrackStorage = malloc(amountOfFrames * sizeof(peakStorage));
-			int groupCounter = 0;
-			int startFrame = 0;
-
-			if (partialTrackStorage)
-			{
-				for (int k = 1; k < amountOfFrames; k++)
+				for(int i = 0; i < binSize; i++)
 				{
-					if (peakHzStorage[k] < upperbound && peakHzStorage[k] > lowerbound)
+					magnitudeStorage[k * binSize + i] = sqrtf(spectrum[i].r * spectrum[i].r + spectrum[i].i * spectrum[i].i);
+				}
+				peakCounts[k] = pickPeaks(magnitudeStorage + k * binSize, binSize, sampleRate, frameSize, peakHzAndMagnitudeStorage + k * 16);
+			}
+			int totalPeakCount = 0;
+			for (int k = 0; k < amountOfFrames; k++)
+			{
+					totalPeakCount += peakCounts[k];
+			}
+			peakStorage* trackStorage = totalPeakCount > 0 ? malloc(totalPeakCount * sizeof(peakStorage)): NULL;
+			if (trackStorage)
+			{
+				int trackCount = linkTracks(peakHzAndMagnitudeStorage, peakCounts, amountOfFrames, trackStorage);
+				int groupStartFrame;
+				int groupEndFrame;
+				int totalEnvelopeLength = 0;
+				int groupCounter = 0;
+				int* groupOfTrack = malloc(trackCount * sizeof(int));
+				int* groupFirstTrack = malloc(trackCount * sizeof(int));
+				int* groupEnvelopeOffsets = malloc(trackCount * sizeof(int));
+				int* groupStartFrames = malloc(trackCount * sizeof(int));
+				int* groupEndFrames = malloc(trackCount * sizeof(int));
+
+				if (groupFirstTrack && groupOfTrack && groupEnvelopeOffsets && groupStartFrames && groupEndFrames)
+				{
+					for (int t = 0; t < trackCount; t++)
 					{
-						frameCounter += 1;
-						runHzTotal += peakHzStorage[k];
+							groupOfTrack[t] = -1;
+					}
+					for (int t = 0; t < trackCount; t++)
+					{
+						if (groupOfTrack[t] != -1) continue;
+						groupOfTrack[t] = groupCounter;
+						groupFirstTrack[groupCounter] = t;
+						for (int u = t + 1; u < trackCount; u++)
+						{
+							if (trackStorage[u].startFrame > trackStorage[t].startFrame + 1) break;
+							if (groupOfTrack[u] != -1) continue;
+							float harmonicRatio = trackStorage[u].peakHz / trackStorage[t].peakHz;
+							for (int m = 2; m < 9; m++)
+							{
+								if (fabsf(1200 * log2f(harmonicRatio / m)) < 50)
+								{
+									groupOfTrack[u] = groupCounter;
+									break;
+								}
+							}
+						}
+						groupCounter++;
+					}
+					for (int g = 0; g < groupCounter; g++)
+					{
+						groupStartFrames[g] = amountOfFrames;
+						groupEndFrames[g] = 0;
+				}
+					for (int t = 0; t < trackCount; t++)
+					{
+						int g = groupOfTrack[t];
+						if (trackStorage[t].startFrame < groupStartFrames[g])
+						{
+								groupStartFrames[g] = trackStorage[t].startFrame;
+						}
+						if (trackStorage[t].endFrame > groupEndFrames[g])
+						{
+								groupEndFrames[g] = trackStorage[t].endFrame;
+						}
+					}
+					for (int g = 0; g < groupCounter; g++)
+					{
+						groupEnvelopeOffsets[g] = totalEnvelopeLength;
+						totalEnvelopeLength += groupEndFrames[g] - groupStartFrames[g] + 1;
+					}
+					float* groupEnvelope = calloc(totalEnvelopeLength, sizeof(float));
+					noteEvent* noteEventStorage = malloc(groupCounter * sizeof(noteEvent));
+
+					if (groupEnvelope && noteEventStorage)
+					{
+						for(int t = 0; t < trackCount; t++)
+						{
+							int g = groupOfTrack[t];
+							int bin = hzToBin(trackStorage[t].peakHz, frameSize, sampleRate, binSize);
+							for (int s = trackStorage[t].startFrame; s <= trackStorage[t].endFrame; s++)
+							{
+								groupEnvelope[groupEnvelopeOffsets[g] + (s - groupStartFrames[g])] += magnitudeStorage[s * binSize + bin];
+							}
+						}
+						for (int i = 0; i < groupCounter; i++)
+						{
+							noteEvent thisNoteEvent;
+							thisNoteEvent.fundamental = trackStorage[groupFirstTrack[i]].peakHz;
+							groupStartFrame = groupStartFrames[i];
+							groupEndFrame = groupEndFrames[i];
+							thisNoteEvent.startFrame = groupStartFrame;
+							thisNoteEvent.endFrame = groupEndFrame;
+							thisNoteEvent.envelopeLength = groupEndFrame - groupStartFrame + 1;
+							thisNoteEvent.envelope = &groupEnvelope[groupEnvelopeOffsets[i]];
+							thisNoteEvent.itemID = i;
+							noteEventStorage[i] = thisNoteEvent;
+						}
+						noteCount = groupCounter;
+						if (envelopeBuffer)
+						{
+							free(envelopeBuffer);
+						}
+						envelopeBuffer = groupEnvelope;
+						result = noteEventStorage;
 					}
 					else
 					{
-						upperbound = peakHzStorage[k] + tolerance;
-						lowerbound = peakHzStorage[k] - tolerance;
-						thisIterationPeak.length = frameCounter;
-						thisIterationPeak.peakHz = runHzTotal / frameCounter;
-						thisIterationPeak.startFrame = startFrame;
-						thisIterationPeak.endFrame = k - 1;
-						partialTrackStorage[partialTrackCounter] = thisIterationPeak;
-						startFrame = k;
-						partialTrackCounter += 1;
-						frameCounter = 1;
-						runHzTotal = peakHzStorage[k];
+						free(groupEnvelope);
+						free(noteEventStorage);
 					}
 				}
-#ifdef HDEBUG
-				printf("partialTracks=%d\n", partialTrackCounter);
-#endif
-				thisIterationPeak.length = frameCounter;
-				thisIterationPeak.peakHz = runHzTotal / frameCounter;
-				thisIterationPeak.startFrame = startFrame;
-				thisIterationPeak.endFrame = amountOfFrames - 1;
-				partialTrackStorage[partialTrackCounter] = thisIterationPeak;
-				partialTrackCounter += 1;
-
-				int (*groupedFrequencyRuns)[2] = malloc(partialTrackCounter * sizeof(int[2]));
-				int* partialTracksLeft = malloc(partialTrackCounter * sizeof(int));
-				int numberOfTracksLeft = partialTrackCounter;
-
-				if (groupedFrequencyRuns && partialTracksLeft)
-				{
-					for (int t = 0; t < partialTrackCounter; t++)
-					{
-						partialTracksLeft[t] = t;
-					}
-
-					while (numberOfTracksLeft > 0)
-					{
-						int targetTrack = partialTracksLeft[0];
-
-						float startingTargetHz = partialTrackStorage[targetTrack].peakHz;
-						int targetStartFrame = partialTrackStorage[targetTrack].startFrame;
-						int targetEndFrame = partialTrackStorage[targetTrack].endFrame;
-
-						int topScore = 0;
-						int topPosition = -1;
-						int topLength = 0;
-
-						for (int i = 1; i < numberOfTracksLeft; i++)
-						{
-							int thisTrack = partialTracksLeft[i];
-							int score = 0;
-							int harmonicsCheck = 0;
-							for (int m = 1; m < 11; m++)
-							{
-								if (partialTrackStorage[thisTrack].peakHz > (startingTargetHz * m) - 10 && partialTrackStorage[thisTrack].peakHz < (startingTargetHz * m) + 10)
-								{
-									harmonicsCheck = 1;
-								}
-							}
-							if (harmonicsCheck == 1)
-							{
-								score += 1;
-							}
-							if (targetStartFrame == partialTrackStorage[thisTrack].startFrame || targetEndFrame == partialTrackStorage[thisTrack].endFrame)
-							{
-								score += 1;
-							}
-
-							if (score > topScore)
-							{
-								topScore = score;
-								topPosition = i;
-								topLength = partialTrackStorage[thisTrack].length;
-							}
-							else if (score == topScore && score > 0 && partialTrackStorage[thisTrack].length > topLength)
-							{
-								topPosition = i;
-								topLength = partialTrackStorage[thisTrack].length;
-							}
-						}
-
-						groupedFrequencyRuns[groupCounter][0] = targetTrack;
-						groupedFrequencyRuns[groupCounter][1] = topPosition >= 0 ? partialTracksLeft[topPosition] : -4;
-						groupCounter += 1;
-
-						if (topPosition >= 0)
-						{
-							for (int i = topPosition; i < numberOfTracksLeft - 1; i++)
-							{
-								partialTracksLeft[i] = partialTracksLeft[i + 1];
-							}
-							numberOfTracksLeft -= 1;
-						}
-						for (int i = 0; i < numberOfTracksLeft - 1; i++)
-						{
-							partialTracksLeft[i] = partialTracksLeft[i + 1];
-						}
-						numberOfTracksLeft -= 1;
-#ifdef HDEBUG
-						if (numberOfTracksLeft % 500 == 0) printf("grouping %d tracks left\n", numberOfTracksLeft);
-#endif
-					}
-					free(partialTracksLeft);
-
-					int groupStartFrame;
-					int groupEndFrame;
-					int totalEnvelopeLength = 0;
-					int* groupStartFrames = malloc(groupCounter * sizeof(int));
-					int* groupEndFrames = malloc(groupCounter * sizeof(int));
-
-					if (groupStartFrames && groupEndFrames)
-					{
-						for (int i = 0; i < groupCounter; i++)
-						{
-							if (groupedFrequencyRuns[i][1] != -4)
-							{
-								int targetRun1 = groupedFrequencyRuns[i][0];
-								int targetRun2 = groupedFrequencyRuns[i][1];
-								if (partialTrackStorage[targetRun1].startFrame < partialTrackStorage[targetRun2].startFrame)
-								{
-									groupStartFrame = partialTrackStorage[targetRun1].startFrame;
-								}
-								else
-								{
-									groupStartFrame = partialTrackStorage[targetRun2].startFrame;
-								}
-								if (partialTrackStorage[targetRun1].endFrame > partialTrackStorage[targetRun2].endFrame)
-								{
-									groupEndFrame = partialTrackStorage[targetRun1].endFrame;
-								}
-								else
-								{
-									groupEndFrame = partialTrackStorage[targetRun2].endFrame;
-								}
-							}
-							else
-							{
-								int targetRun = groupedFrequencyRuns[i][0];
-								groupStartFrame = partialTrackStorage[targetRun].startFrame;
-								groupEndFrame = partialTrackStorage[targetRun].endFrame;
-							}
-							groupStartFrames[i] = groupStartFrame;
-							groupEndFrames[i] = groupEndFrame;
-							totalEnvelopeLength += groupEndFrame - groupStartFrame + 1;
-						}
-
-						float* groupEnvelope = malloc(totalEnvelopeLength * sizeof(float));
-						noteEvent* noteEventStorage = malloc(groupCounter * sizeof(noteEvent));
-
-						if (groupEnvelope && noteEventStorage)
-						{
-							int envelopeOffset = 0;
-							for (int i = 0; i < groupCounter; i++)
-							{
-								noteEvent thisNoteEvent;
-								groupStartFrame = groupStartFrames[i];
-								groupEndFrame = groupEndFrames[i];
-								thisNoteEvent.startFrame = groupStartFrame;
-								thisNoteEvent.endFrame = groupEndFrame;
-								thisNoteEvent.envelopeLength = groupEndFrame - groupStartFrame + 1;
-								if (groupedFrequencyRuns[i][1] != -4)
-								{
-									int targetRun1 = groupedFrequencyRuns[i][0];
-									int targetRun2 = groupedFrequencyRuns[i][1];
-									float frequency1 = partialTrackStorage[targetRun1].peakHz;
-									float frequency2 = partialTrackStorage[targetRun2].peakHz;
-
-									float lowHz = frequency1 < frequency2 ? frequency1 : frequency2;
-									float highHz = frequency1 < frequency2 ? frequency2 : frequency1;
-									float harmonicRatio = lowHz > 0.0f ? highHz / lowHz : 1.0f;
-									int harmonicsCheck = 0;
-									for (int m = 1; m < 9; m++)
-									{
-										if (fabsf(harmonicRatio - m) < 0.25f)
-										{
-											harmonicsCheck = 1;
-										}
-									}
-
-									float run1MagTotal = 0;
-									float run2MagTotal = 0;
-									int run1Frames = 0;
-									int run2Frames = 0;
-									for (int s = groupStartFrame; s <= groupEndFrame; s++)
-									{
-										float frameMagnitude = 0;
-										if (s >= partialTrackStorage[targetRun1].startFrame && s <= partialTrackStorage[targetRun1].endFrame)
-										{
-											int bin1 = hzToBin(partialTrackStorage[targetRun1].peakHz, frameSize, sampleRate, binSize);
-											float thisMag = magnitudeStorage[s * binSize + bin1];
-											frameMagnitude += thisMag;
-											run1MagTotal += thisMag;
-											run1Frames += 1;
-										}
-										if (s >= partialTrackStorage[targetRun2].startFrame && s <= partialTrackStorage[targetRun2].endFrame)
-										{
-											int bin2 = hzToBin(partialTrackStorage[targetRun2].peakHz, frameSize, sampleRate, binSize);
-											float thisMag = magnitudeStorage[s * binSize + bin2];
-											frameMagnitude += thisMag;
-											run2MagTotal += thisMag;
-											run2Frames += 1;
-										}
-										groupEnvelope[envelopeOffset + (s - groupStartFrame)] = frameMagnitude;
-									}
-
-									if (harmonicsCheck)
-									{
-										thisNoteEvent.fundamental = lowHz;
-									}
-									else
-									{
-										float run1Average = run1Frames > 0 ? run1MagTotal / run1Frames : 0.0f;
-										float run2Average = run2Frames > 0 ? run2MagTotal / run2Frames : 0.0f;
-										thisNoteEvent.fundamental = run1Average >= run2Average ? frequency1 : frequency2;
-									}
-								}
-								else
-								{
-									int targetRun = groupedFrequencyRuns[i][0];
-									thisNoteEvent.fundamental = partialTrackStorage[targetRun].peakHz;
-
-									for (int s = groupStartFrame; s <= groupEndFrame; s++)
-									{
-										float frameMagnitude = 0;
-										if (s >= partialTrackStorage[targetRun].startFrame && s <= partialTrackStorage[targetRun].endFrame)
-										{
-											int bin1 = hzToBin(partialTrackStorage[targetRun].peakHz, frameSize, sampleRate, binSize);
-											frameMagnitude += magnitudeStorage[s * binSize + bin1];
-										}
-										groupEnvelope[envelopeOffset + (s - groupStartFrame)] = frameMagnitude;
-									}
-								}
-								thisNoteEvent.envelope = &groupEnvelope[envelopeOffset];
-								envelopeOffset += thisNoteEvent.envelopeLength;
-								thisNoteEvent.itemID = i;
-								noteEventStorage[i] = thisNoteEvent;
-							}
-							noteCount = groupCounter;
-							if (envelopeBuffer)
-							{
-								free(envelopeBuffer);
-							}
-							envelopeBuffer = groupEnvelope;
-							result = noteEventStorage;
-						}
-						else
-						{
-							free(groupEnvelope);
-							free(noteEventStorage);
-						}
-					}
-					free(groupStartFrames);
-					free(groupEndFrames);
-					free(groupedFrequencyRuns);
-				}
-				else
-				{
-					free(groupedFrequencyRuns);
-					free(partialTracksLeft);
-				}
-				free(partialTrackStorage);
+				free(groupStartFrames);
+				free(groupEndFrames);
+				free(groupOfTrack);
+				free(groupFirstTrack);
+				free(groupEnvelopeOffsets);
 			}
+			free(trackStorage);
 		}
 		free(magnitudeStorage);
-		free(peakHzStorage);
+		free(peakHzAndMagnitudeStorage);
+		free(peakCounts);
 	}
 	kiss_fftr_free(cfg);
 	free(frameBuffer);

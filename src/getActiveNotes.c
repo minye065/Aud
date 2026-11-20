@@ -56,8 +56,8 @@ float getActiveNotes(song* currentSong, int16_t* returnSamples, int samplesNeede
 				summedSampleValue += noteVolume * currentNoteItem.harmonics[h] * (float)sin(harmonicPhase);
 			}
 		}
-		if(summedSampleValue > 1.0f) summedSampleValue = 1.0f;
-		if(summedSampleValue < -1.0f) summedSampleValue = -1.0f;
+		if(!(summedSampleValue == summedSampleValue)) summedSampleValue = 0.0f;
+		summedSampleValue = tanhf(summedSampleValue);
 		int16_t scaledTotal = (int16_t)(summedSampleValue * 32767);
 		returnSamples[i] = scaledTotal;
 	}

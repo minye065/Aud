@@ -77,8 +77,9 @@
         const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
         const result = await encodeAudio(audioBuffer);
+        if(result.noteCount === 0) status.textContent = 'nothing in ${file.name}';
 
-        const songName = file.name.replace(/\.[^.]+$/, '').replace(/\s+/g, '_');
+        const songName = file.name.replace(/\.[^.]+$/, '').replace(/[^A-Za-z0-9_.-]/g, '_').slice(0, 31) || 'song';
         const blob = new Blob([writeFile(result, songName)], { type: 'text/plain' });        
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
