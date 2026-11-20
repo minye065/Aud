@@ -88,6 +88,8 @@ function writeFile(result, songName)
             if (currentNote.envelope[j] > noteEnvelopePeak) noteEnvelopePeak = currentNote.envelope[j];
         }
         if (noteEnvelopePeak <= 0) continue;
+        const loudnessWeight = 1 / (1 + Math.pow(currentNote.fundamental / 1500, 2));
+        const noteGain = Math.sqrt(noteEnvelopePeak) * loudnessWeight * 0.6;
         const tone = Math.round(1200 * Math.log2(currentNote.fundamental / itemBaseHz));
         outputFileLines.push(`use item0 tone:${tone} frame:${currentNote.startFrame}-${currentNote.endFrame + 1} gain:${noteEnvelopePeak.toFixed(3)}`);
     }

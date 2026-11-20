@@ -94,7 +94,7 @@ static int pickPeaks(float* magnitudeStorage, int binCount, unsigned int sampleR
 		}
 	}
 	int firstBin = hzToBin(80.0f, frameSize, sampleRate, binCount);
-	int lastBin = hzToBin(5000.0f, frameSize, sampleRate, binCount);
+	int lastBin = hzToBin(3500.0f, frameSize, sampleRate, binCount);
 	float magnitudeFloor = highestMagnitude * 0.05;
 	for (int i = (firstBin < 1 ? 1 : firstBin); i < lastBin && i < binCount - 1; i++) 
 	{
@@ -130,13 +130,13 @@ static int pickPeaks(float* magnitudeStorage, int binCount, unsigned int sampleR
 	{
 		int bin = peakBins[i];
 
-		float leftMag = bin > 0 ? magnitudeStorage[bin - 1] : 0.0f;
-		float rightMag = bin < (int)binCount - 1 ? magnitudeStorage[bin+ 1] : 0.0f;
-		float centerMag = magnitudeStorage[bin];
+		float leftMag = logf(magnitudeStorage[bin - 1] + 0.000001f);
+		float rightMag = logf(magnitudeStorage[bin + 1] + 0.000001f);
+		float centerMag = logf(magnitudeStorage[bin] + 0.000001f);
 		float parabolaDenominator = leftMag - 2 * centerMag + rightMag;
 		float binShift = parabolaDenominator != 0.0f ? 0.5f * (leftMag - rightMag) / parabolaDenominator : 0.0f;
-		if (binShift > 1.0f) binShift = 1.0f;
-		if (binShift < -1.0f) binShift = -1.0f;
+		if (binShift > 1.0f) binShift = 0.5f;
+		if (binShift < -1.0f) binShift = -0.5f;
 		peakHzAndMagnitudeOutput[i * 2] = ((float)bin + binShift) * sampleRate / frameSize;
 		peakHzAndMagnitudeOutput[i * 2 + 1] = peakMagnitude[i];
 	}
@@ -246,6 +246,20 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 					magnitudeStorage[k * binSize + i] = sqrtf(spectrum[i].r * spectrum[i].r + spectrum[i].i * spectrum[i].i);
 				}
 				peakCounts[k] = pickPeaks(magnitudeStorage + k * binSize, binSize, sampleRate, frameSize, peakHzAndMagnitudeStorage + k * 16);
+				for (int i = 1; i < peakCounts[k]; i++)
+				{
+					float sortedHz = peakHzAndMagnitudeStorage[k * 16 + i * 2];
+					float sortedMagnitude = peakHzAndMagnitudeStorage[k * 16 + i * 2 + 1];
+					int shiftIndex = i - 1;
+					while (shiftIndex >= 0 && peakHzAndMagnitudeStorage[k * 16 + shiftIndex * 2] > i)
+					{
+						peakHzAndMagnitudeStorage[k * 16 + (shiftIndex + 1) * 2] = peakHzAndMagnitudeStorage[k * 16 + shiftIndex * 2];
+						peakHzAndMagnitudeStorage[k * 16 + (shiftIndex + 1) * 2 + 1] = peakHzAndMagnitudeStorage[k * 16 + shiftIndex * 2 + 1];
+						shiftIndex--;
+					}
+					peakHzAndMagnitudeStorage[k * 16 + (shiftIndex + 1) * 2] = sortedHz;
+					peakHzAndMagnitudeStorage[k * 16 + (shiftIndex + 1) * 2 + 1] = sortedMagnitude;
+				}
 			}
 			int totalPeakCount = 0;
 			for (int k = 0; k < amountOfFrames; k++)
@@ -261,6 +275,7 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 				int totalEnvelopeLength = 0;
 				int groupCounter = 0;
 				int minimumTrackLength = 5;
+				int minimumHighTrackLength = 12;
 				int* groupOfTrack = malloc(trackCount * sizeof(int));
 				int* groupFirstTrack = malloc(trackCount * sizeof(int));
 				int* groupEnvelopeOffsets = malloc(trackCount * sizeof(int));
@@ -275,13 +290,13 @@ noteEvent* encode(float* passedInPCM, unsigned int totalSize, unsigned int sampl
 					}
 					for (int t = 0; t < trackCount; t++)
 					{
-						if (groupOfTrack[t] != -1 || trackStorage[t].length < minimumTrackLength) continue;
+						if (trackStorage[t].length < (trackStorage[t].peakHz > 1000.0f ? minimumHighTrackLength : minimumTrackLength)) continue;
 						groupOfTrack[t] = groupCounter;
 						groupFirstTrack[groupCounter] = t;
 						for (int u = t + 1; u < trackCount; u++)
 						{
 							if (trackStorage[u].startFrame > trackStorage[t].startFrame + 1) break;
-							if (groupOfTrack[u] != -1 || trackStorage[u].length < minimumTrackLength) continue;
+							if (trackStorage[u].length < (trackStorage[u].peakHz > 1000.0f ? minimumHighTrackLength : minimumTrackLength)) continue;
 
 							float harmonicRatio = trackStorage[u].peakHz / trackStorage[t].peakHz;
 							for (int m = 2; m < 9; m++)
